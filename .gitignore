@@ -1,0 +1,9 @@
+webster-env/
+__pycache__/
+build/
+dist/
+tools/
+images/
+tools/
+DATOS.xlsx
+MAIN_REPORT.docx
