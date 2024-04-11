@@ -33,8 +33,9 @@ import math
 import bisect
 from pathlib import Path
 import warnings
+from tqdm import tqdm
 
-warnings.filterwarnings("ignore",category=DeprecationWarning)
+warnings.filterwarnings("ignore",category=FutureWarning)
 
 ###########################
 # Default data and tables #
@@ -103,6 +104,7 @@ def compute_webster(
         df: dict,
         FACTOR: float,
         wb_WEBSTER: load_workbook,
+        scenario: int,
         ) -> None:
 
     wb = load_workbook(path_vehicles, read_only=True, data_only=True)
@@ -403,20 +405,30 @@ def compute_webster(
             serie = [0,200,400,600,800,1000,1200]
             index = bisect.bisect_left(serie, opposite_flow)
             if index == 0: Evi = 1.1
-            before_value    = df_Evi.at[serie[index-1],num_opp_lines]
-            after_value     = df_Evi.at[serie[index],num_opp_lines]
-            Evi = after_value - (after_value - before_value)*(serie[index]-opposite_flow)/(serie[index]-serie[index-1])
+            if index < 7:
+                before_value    = df_Evi.at[serie[index-1],num_opp_lines]
+                after_value     = df_Evi.at[serie[index],num_opp_lines]
+                Evi = after_value - (after_value - before_value)*(serie[index]-opposite_flow)/(serie[index]-serie[index-1])
+            else: #TODO: Comprobar si esta bien <-------------------------------------------------
+                before_value    = df_Evi.at[serie[index-2],num_opp_lines]
+                after_value     = df_Evi.at[serie[index-1],num_opp_lines]
+                Evi = after_value - (after_value - before_value)*(serie[index-1]-opposite_flow)/(serie[index-1]-serie[index-2])
+            
             Evi = round(Evi, 2)
-            #print(f"Opposite flow = {opposite_flow}, Number of Carriles = {num_opp_lines}, Evi = {Evi}")
 
         qvi = math.ceil(df_flows.at[access, "Izquierda"]/0.95/fhv_by_access[access]*Evi)
 
         #Derecha:
         serie = [0,50,200,400,800]
         index = bisect.bisect_left(serie, max_ped_flow)
-        before_value = df_Evd.at[serie[index-1], "Equivalente"]
-        after_value = df_Evd.at[serie[index], "Equivalente"]
-        Evd = after_value - (after_value - before_value)*(serie[index]-max_ped_flow)/(serie[index]-serie[index-1])
+        if index < 5:
+            before_value = df_Evd.at[serie[index-1], "Equivalente"]
+            after_value = df_Evd.at[serie[index], "Equivalente"]
+            Evd = after_value - (after_value - before_value)*(serie[index]-max_ped_flow)/(serie[index]-serie[index-1])
+        else:
+            before_value = df_Evd.at[serie[index-2], "Equivalente"]
+            after_value = df_Evd.at[serie[index-1], "Equivalente"]
+            Evd = after_value - (after_value - before_value)*(serie[index-1]-max_ped_flow)/(serie[index-1]-serie[index-2])
         Evd = round(Evd, 2)
 
         qvd = math.ceil(df_flows.at[access, "Derecha"]/0.95/fhv_by_access[access]*Evd)
@@ -488,7 +500,7 @@ def compute_webster(
         Cp = TOTAL_LOST_TIME/(1-1.1*sum(max_relations))
         Ccruce = MIN_GREEN + TOTAL_LOST_TIME
         Cmax = 150 + MIN_GREEN
-        ws.cell(17,2).value = "Los flujos no se superan la capacidad, seleccionar el tiempo de ciclo de las opciones propuestas."
+        ws.cell(17,2).value = "Los flujos no superan la capacidad, seleccionar el tiempo de ciclo de las opciones propuestas."
     else:
         Cw = 0
         Cmin = 0
@@ -499,96 +511,19 @@ def compute_webster(
 
     #TODO: La fila depende de que escenario es :D
     #Tiempo de Ciclo
-    ws.cell(2,3).value = Cmax
-    ws.cell(2,4).value = Cw
-    ws.cell(2,5).value = Cmin
-    ws.cell(2,6).value = Cp
-    ws.cell(2,7).value = Ccruce
+    ws.cell(scenario+2,3).value = Cmax
+    ws.cell(scenario+2,4).value = Cw
+    ws.cell(scenario+2,5).value = Cmin
+    ws.cell(scenario+2,6).value = Cp
+    ws.cell(scenario+2,7).value = Ccruce
 
     #Relaciones de flujo y flujo saturado
-    for idx, no in enumerate(no_group): #1, 2, 3, ...
-        ws.cell(2, idx+10).value = max_relations[idx]
+    for idx, _ in enumerate(no_group): #1, 2, 3, ...
+        ws.cell(scenario+2, idx+10).value = max_relations[idx]
 
     #Ai y RRi
-    for no in no_group:
-        ws.cell(2,22+no*3).value = 3
-        ws.cell(2,23+no*3).value = RR
+    for idx, _ in enumerate(no_group):
+        ws.cell(scenario+2,22+idx*3).value = 3
+        ws.cell(scenario+2,23+idx*3).value = RR
 
     #TODO: Si esta saturado, el microsimulador debe sugerir un tiempo de ciclo máximo.
-
-if __name__ == '__main__':
-    path_datos = r"DATOS.xlsx"
-
-    df = pd.read_excel(path_datos, header=0, usecols="A:G", nrows=11).dropna()
-    df.index = df.iloc[:,0].astype(int)
-    df =df.iloc[:,1:]
-    mapping = {'SI': True, 'NO': False}
-    df['Protegido'] = df['Protegido'].replace(mapping).infer_objects(copy=False)
-
-    df2 = pd.read_excel(path_datos, header=0, usecols="I:L", nrows=11).dropna()
-    rr_time_id = df2.loc[df2['Todo Rojo'].idxmax()]['Caso']
-    min_green_id = rr_time_id
-
-    #Paths:
-    vehicle_path = Path(r"C:\Users\dacan\OneDrive\Desktop\PRUEBAS\Maxima Entropia\1 PROYECTO SURCO\7. Informacion de Campo\Sub Area 016\Vehicular\Tipico\SS-77_Av. Rosa Lozano-Jr. Geranios_Veh_T.xlsm")
-    pedestrian_path = Path(r"C:\Users\dacan\OneDrive\Desktop\PRUEBAS\Maxima Entropia\1 PROYECTO SURCO\7. Informacion de Campo\Sub Area 016\Peatonal\Tipico\SS-77_ Av. Rosa Lozano - Jr. Geranios_Peatonal_T.xlsm")
-
-    subarea_folder = Path(r"C:\Users\dacan\OneDrive\Desktop\PRUEBAS\Maxima Entropia\1 PROYECTO SURCO\6. Sub Area Vissim")
-    balance_folder = subarea_folder / "Balanceado"
-    intervals = []
-    for tipicidad in ["Tipico", "Atipico"]:
-        for turno in ["Manana", "Tarde", "Noche"]:
-            balance_path = balance_folder / tipicidad / turno / f"Balance_{turno}.xlsx"
-            wb = load_workbook(balance_path, read_only=True, data_only=True)
-            ws = wb['Sheet1']
-            peakhour = ws.cell(2,3).value
-            inicio, _ = peakhour.split(" - ")
-            hour = (int(inicio[:2]) + int(inicio[3:5])/60)*4
-            intervals.append(slice(hour, hour+4))
-
-    """
-    0: HPM - TIPICO
-    1: HPT - TIPICO
-    2: HPN - TIPICO
-    3: HPM - ATIPICO
-    4: HPT - ATIPICO
-    5: HPN - ATIPICO
-    """
-
-    for i in range(13):
-        #Factores
-        if i+1 == 1 or i+1 == 9:
-            factor = 0.30
-        elif i+1 == 2 or i+1 == 8 or i+1 == 13:
-            factor = 0.50
-        else:
-            factor = 1.00
-
-        #Horas puntas para los intervalos
-        if 1 <= i+1 <= 3:
-            interval = intervals[0]
-        elif i+1 == 4:
-            interval = slice(8*4, 9*4)
-        elif i+1 == 5:
-            interval = intervals[1]
-        elif i+1 == 6:
-            interval = slice(14*4, 15*4)
-        elif 7 <= i+1 <= 8:
-            interval = intervals[2]
-        elif 9 <= i+1 <= 10:
-            interval = intervals[3]
-        elif i+1 == 11:
-            interval = intervals[4]
-        elif 12 <= i+1:
-            interval = intervals[5]
-
-    path_template = r".\tools\WEBSTER.xlsx"
-    wb_WEBSTER = load_workbook(path_template, read_only=False, data_only=False)
-
-        compute_webster(vehicle_path, pedestrian_path, min_green_id, rr_time_id, interval, df, factor)
-
-    wb_WEBSTER.save("TEST2.xlsx")
-    wb_WEBSTER.close()
-
-    #compute_webster(vehicle_path, pedestrian_path, min_green_id, rr_time_id, slice(28, 32), df)
-    print("Done")
