@@ -33,7 +33,7 @@ import math
 import bisect
 from pathlib import Path
 import warnings
-from tqdm import tqdm
+import unidecode
 
 warnings.filterwarnings("ignore",category=FutureWarning)
 
