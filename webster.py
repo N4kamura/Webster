@@ -1,30 +1,3 @@
-""" 
-Factor de equivalencia de VEHÍCULOS PESADOS:
-fhv = 100 / (100 + Pt(Et-1) + Pb(Eb-1) + Pr(Er-1))
-fhv = factor de ajuste por efecto de los vehículos pesados
-Pt = % de camiones en la corriente vehicular
-Pb = % de buses en la corriente vehicular
-Pr = % de vehículos recreativos en la corriente vehicular
-Et = automóviles equivalentes a un camión
-Eb = automóviles equivalentes a un bus
-Er = automóviles equivalentes a un vehículo recreativo
-"""
-
-""" 
-Hora punta de la madrugada      05:00 - 06:30 
-Hora valle de la madrugada      06:30 - 10:30 
-Hora punta de la mañana         10:30 - 12:30 
-Hora valle de la mañana         12:30 - 15:00 
-Hora punta de la tarde          15:00 - 17:00 
-Hora valle de la tarde          17:00 - 22:00 
-Hora punta de la noche          22:00 - 00:00 
-Hora Valle Madrugada (HVMAD)    00:00 - 06:00 
-Hora Punta Mañana (HPM)         06:00 - 12:00 
-Hora Punta Tarde (HPT)          12:00 - 17:00 
-Hora Punta Noche (HPN)          17:00 - 22:00 
-Hora Valle Noche (HVN)          22:00 - 00:00 
-"""
-
 from openpyxl import load_workbook
 from unidecode import unidecode
 import numpy as np
@@ -96,18 +69,21 @@ df_Evd.loc[[0,50,200,400,800],["Equivalente"]] = DATA_DER
 ##########################
 
 def compute_webster(
-        path_vehicles: str | Path,
+        path_vehicles: list,
         path_pedestrian: str | Path,
         min_green_id: int,
         rr_time_id: int,
         interval: slice, #slice(28, 32)
-        df: dict,
+        df: pd.DataFrame,
         FACTOR: float,
         wb_WEBSTER: load_workbook,
         scenario: int,
         ) -> None:
 
-    wb = load_workbook(path_vehicles, read_only=True, data_only=True)
+    if scenario <= 7:
+        wb = load_workbook(path_vehicles[0], read_only=True, data_only=True)
+    else:
+        wb = load_workbook(path_vehicles[1], read_only=True, data_only=True)
 
     #UCP VALUES
     ws = wb['Inicio']
@@ -152,8 +128,6 @@ def compute_webster(
     ]
 
     num_giros = [0,0,0,0]
-    #7-8
-    #interval = slice(28, 32) #TODO: <-------------------------------------------------------------------- AUTOMATIZAR PARA CADA ESCENARIO :D LOS VOLUMENES
     num_veh_classes = len(vehicle_types)
 
     for j, turn in enumerate(giro_slices):
@@ -217,9 +191,11 @@ def compute_webster(
         array_flow_ucp[veh_type] *= float(ucp_values[veh_type])
 
     origin_matrix = list(set(list_origin))
+    destiny_matrix = list(set(list_destination))
 
     if origin_matrix != df.index.tolist():
         print("Los accesos no coinciden entre los conteos y los datos de Webster")
+        print(origin_matrix, df.index.tolist())
 
     ###########################
     # Reading pedestrian data #
@@ -340,21 +316,12 @@ def compute_webster(
         fhv = 100 / denominator
         fhv_by_access[access] = round(fhv,4)
 
-    """ data = {
-        'Directo':     [2,1,4,3],
-        'Izquierda':         [3,4,2,1],
-        'Protegido':    [False, False, False, False],
-        'Derecha':        [4,3,1,2],
-        'Carriles':        [2,2,2,2],
-        'Grupo':        [1,1,2,2],
-    } """
-
-    df_flows = pd.DataFrame(index = origin_matrix, columns = ['Directo', 'Izquierda', 'Derecho'])
+    df_flows = pd.DataFrame(index = origin_matrix, columns = ['Directo', 'Izquierda', 'Derecha'])
 
     #df = pd.DataFrame(data, index = origin_matrix)
 
     for origin in origin_matrix:
-        for destiny in origin_matrix:
+        for destiny in destiny_matrix:
             flow = 0
             if df.at[origin, "Izquierda"] == destiny:
                 for (i, o), d in zip(enumerate(list_origin), list_destination): #Encuentra que giro es, el orden, no el tipo vehicular
@@ -363,7 +330,9 @@ def compute_webster(
                             for giro in range(len(list_origin)): #Aquí accede al giro correspondiente para un tipo vehicular específico
                                 if giro == i:
                                     flow += sum(array_flow[veh_type][:,giro]) #Aquí esta sumando de cada tipo vehicular un giro en específico
-                    df_flows.at[origin, 'Izquierda'] = flow
+                    if flow == None:
+                        df_flows.at[origin, 'Izquierda'] = 0
+                    else: df_flows.at[origin, 'Izquierda'] = flow
 
             flow = 0
             if df.at[origin, "Derecha"] == destiny:
@@ -373,8 +342,9 @@ def compute_webster(
                             for giro in range(len(list_origin)):
                                 if giro == i:
                                     flow += sum(array_flow[veh_type][:,giro])
-                    df_flows.at[origin, 'Derecha'] = flow
-
+                    if flow == None:
+                        df_flows.at[origin, 'Derecha'] = 0
+                    else: df_flows.at[origin, 'Derecha'] = flow
 
             flow = 0
             if df.at[origin, "Directo"] == destiny:
@@ -384,7 +354,9 @@ def compute_webster(
                             for giro in range(len(list_origin)):
                                 if giro == i:
                                     flow += sum(array_flow[veh_type][:,giro])
-                    df_flows.at[origin, 'Directo'] = flow
+                    if flow == None:
+                        df_flows.at[origin, "Directo"] = 0
+                    else: df_flows.at[origin, 'Directo'] = flow
 
     #######################
     # Computing ADE Flows #
@@ -393,55 +365,57 @@ def compute_webster(
     df_flows_ade = pd.DataFrame(index = origin_matrix, columns = ['Directo', 'Izquierda', 'Derecha'])
     for access in fhv_by_access:
         #Directo:
-        qd = math.ceil(df_flows.at[access, "Directo"]/0.95/fhv_by_access[access]) #<--- FACTOR DE HORA PUNTA SE CONSIDERO 0.95
+        if not pd.isnull(df.at[access, "Directo"]):
+            qd = math.ceil(df_flows.at[access, "Directo"]/0.95/fhv_by_access[access]) #<--- FACTOR DE HORA PUNTA SE CONSIDERO 0.95
+        else: qd = 0
         
         #Izquierda:
-        if df.at[access,'Protegido']:
-            Evi = 1.05
-        else:
-            num_opp_lines = df.at[df.at[access,'Directo'],'Carriles']
-            if num_opp_lines >= 3: num_opp_lines = 3
-            opposite_flow = df_flows.at[df.at[access,'Directo'],'Directo']
-            serie = [0,200,400,600,800,1000,1200]
-            index = bisect.bisect_left(serie, opposite_flow)
-            if index == 0: Evi = 1.1
-            if index < 7:
-                before_value    = df_Evi.at[serie[index-1],num_opp_lines]
-                after_value     = df_Evi.at[serie[index],num_opp_lines]
-                Evi = after_value - (after_value - before_value)*(serie[index]-opposite_flow)/(serie[index]-serie[index-1])
-            else: #TODO: Comprobar si esta bien <-------------------------------------------------
-                before_value    = df_Evi.at[serie[index-2],num_opp_lines]
-                after_value     = df_Evi.at[serie[index-1],num_opp_lines]
-                Evi = after_value - (after_value - before_value)*(serie[index-1]-opposite_flow)/(serie[index-1]-serie[index-2])
-            
-            Evi = round(Evi, 2)
+        if not pd.isnull(df.at[access, "Izquierda"]):
+            if df.at[access,'Protegido']:
+                Evi = 1.05
+            elif not df.at[access, "Directo"] in origin_matrix:
+                Evi = 1.00
+            else:
+                num_opp_lines = df.at[df.at[access,'Directo'],'Carriles']
+                if num_opp_lines >= 3: num_opp_lines = 3
+                opposite_flow = df_flows.at[df.at[access,'Directo'],'Directo']
+                serie = [0,200,400,600,800,1000,1200]
+                index = bisect.bisect_left(serie, opposite_flow)
+                if index == 0: Evi = 1.1
+                if index < 7:
+                    before_value    = df_Evi.at[serie[index-1],num_opp_lines]
+                    after_value     = df_Evi.at[serie[index],num_opp_lines]
+                    Evi = after_value - (after_value - before_value)*(serie[index]-opposite_flow)/(serie[index]-serie[index-1])
+                else: #TODO: Comprobar si esta bien <-------------------------------------------------
+                    before_value    = df_Evi.at[serie[index-2],num_opp_lines]
+                    after_value     = df_Evi.at[serie[index-1],num_opp_lines]
+                    Evi = after_value - (after_value - before_value)*(serie[index-1]-opposite_flow)/(serie[index-1]-serie[index-2])
+                
+                Evi = round(Evi, 2)
 
-        qvi = math.ceil(df_flows.at[access, "Izquierda"]/0.95/fhv_by_access[access]*Evi)
+            qvi = math.ceil(df_flows.at[access, "Izquierda"]/0.95/fhv_by_access[access]*Evi)
+        else: qvi = 0
 
         #Derecha:
         serie = [0,50,200,400,800]
         index = bisect.bisect_left(serie, max_ped_flow)
-        if index < 5:
-            before_value = df_Evd.at[serie[index-1], "Equivalente"]
-            after_value = df_Evd.at[serie[index], "Equivalente"]
-            Evd = after_value - (after_value - before_value)*(serie[index]-max_ped_flow)/(serie[index]-serie[index-1])
-        else:
-            before_value = df_Evd.at[serie[index-2], "Equivalente"]
-            after_value = df_Evd.at[serie[index-1], "Equivalente"]
-            Evd = after_value - (after_value - before_value)*(serie[index-1]-max_ped_flow)/(serie[index-1]-serie[index-2])
-        Evd = round(Evd, 2)
+        if not pd.isnull(df.at[access, "Derecha"]):
+            if index < 5:
+                before_value = df_Evd.at[serie[index-1], "Equivalente"]
+                after_value = df_Evd.at[serie[index], "Equivalente"]
+                Evd = after_value - (after_value - before_value)*(serie[index]-max_ped_flow)/(serie[index]-serie[index-1])
+            else:
+                before_value = df_Evd.at[serie[index-2], "Equivalente"]
+                after_value = df_Evd.at[serie[index-1], "Equivalente"]
+                Evd = after_value - (after_value - before_value)*(serie[index-1]-max_ped_flow)/(serie[index-1]-serie[index-2])
+            Evd = round(Evd, 2)
 
-        qvd = math.ceil(df_flows.at[access, "Derecha"]/0.95/fhv_by_access[access]*Evd)
+            qvd = math.ceil(df_flows.at[access, "Derecha"]/0.95/fhv_by_access[access]*Evd)
+        else: qvd = 0
 
         df_flows_ade.at[access, 'Directo'] = qd
         df_flows_ade.at[access, 'Izquierda'] = qvi
         df_flows_ade.at[access, 'Derecha'] = qvd
-
-    """
-    Notas para el programador:
-    Hay casos donde no existe giro a la izquierda o derecha.
-    Considera eso en el programa.
-    """
 
     ######################
     # LOST TIME BY CYCLE #
@@ -509,7 +483,6 @@ def compute_webster(
         Cmax = 150+MIN_GREEN
         ws.cell(17,2).value = "Los flujos superan la capacidad, se recomienda al simulador establecer el Tiempo de Ciclo."
 
-    #TODO: La fila depende de que escenario es :D
     #Tiempo de Ciclo
     ws.cell(scenario+2,3).value = Cmax
     ws.cell(scenario+2,4).value = Cw
@@ -526,4 +499,4 @@ def compute_webster(
         ws.cell(scenario+2,22+idx*3).value = 3
         ws.cell(scenario+2,23+idx*3).value = RR
 
-    #TODO: Si esta saturado, el microsimulador debe sugerir un tiempo de ciclo máximo.
+    return None

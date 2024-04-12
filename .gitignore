@@ -7,3 +7,4 @@ images/
 tools/
 interfaces/
 main.spec
+unit_tests.py

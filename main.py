@@ -6,6 +6,8 @@ import sys
 import pandas as pd
 from openpyxl import load_workbook
 from webster import compute_webster
+import os
+import re
 
 class WebsterWindow(QMainWindow):
     def __init__(self):
@@ -40,10 +42,9 @@ class WebsterWindow(QMainWindow):
             return error_message.showMessage("Primero debe abrir todos los archivos")
         
         path_datos = subarea_folder / "DATOS.xlsx"
-        balance_folder = subarea_folder / "Balanceado"
 
         try:
-            df = pd.read_excel(path_datos, header=0, usecols="A:G", nrows=11).dropna()
+            df = pd.read_excel(path_datos, header=0, usecols="A:G", nrows=11)
         except Exception as inst:
             error_message = QErrorMessage(self)
             return error_message.showMessage("No se encontro el archivo DATOS.xlsx")
@@ -63,22 +64,42 @@ class WebsterWindow(QMainWindow):
         min_green_id = rr_time_id
 
         intervals = []
-        for tipicidad in ["Tipico", "Atipico"]:
-            for turno in ["Manana", "Tarde", "Noche"]:
-                balance_path = balance_folder / tipicidad / turno / f"Balance_{turno}.xlsx"
-                try:
-                    wb = load_workbook(balance_path, read_only=True, data_only=True)
-                except Exception as inst:
-                    error_message = QErrorMessage(self)
-                    return error_message.showMessage(f"No se encontro el archivo de balance en {tipicidad}/{turno}")
-                ws = wb['Sheet1']
-                peakhour = ws.cell(2,3).value
-                wb.close()
-                inicio, _ = peakhour.split(" - ")
-                hour = int((int(inicio[:2]) + int(inicio[3:5])/60)*4)
-                intervals.append(slice(hour, hour+4))
+        wb = load_workbook(vehicle_path, read_only=True, data_only=True)
+        ws = wb['Histograma']
+        for j in range(3):
+            peak_hour = ws.cell(18+j*7,3).value
+            hour = int((int(peak_hour[:2]) + int(peak_hour[3:5])/60)*4)
+            intervals.append(slice(hour, hour+4))
+        
+        wb.close()
 
         path_template = r".\tools\WEBSTER.xlsx"
+
+        code = os.path.split(vehicle_path)[1]
+        code = code[:5]
+
+        vehicular_folder = vehicle_path
+        for _ in range(2):
+            vehicular_folder = os.path.split(vehicular_folder)[0]
+        
+        vehicular_folder = Path(vehicular_folder)
+        atipico_folder = vehicular_folder / "Atipico"
+        atipico_excels = os.listdir(atipico_folder)
+        pattern = r"([A-Z]+-[0-9]+)"
+        for atipico_excel in atipico_excels:
+            coincidence = re.search(pattern, atipico_excel)
+            if coincidence:
+                atipico_excel_path = atipico_folder / atipico_excel
+                break
+
+        wb = load_workbook(atipico_excel_path, read_only=True, data_only=True)
+        ws = wb['Histograma']
+        for j in range(3):
+            peak_hour = ws.cell(18+j*7,3).value
+            hour = int((int(peak_hour[:2]) + int(peak_hour[3:5])/60)*4)
+            intervals.append(slice(hour, hour+4))
+        
+        wb.close()
 
         try:
             wb_WEBSTER = load_workbook(path_template, read_only=False, data_only=False)
@@ -114,13 +135,14 @@ class WebsterWindow(QMainWindow):
                 interval = intervals[5]
 
             try:
-                compute_webster(vehicle_path, pedestrian_path, min_green_id, rr_time_id, interval, df, factor, wb_WEBSTER, i)
+                compute_webster([vehicle_path, atipico_excel_path], pedestrian_path, min_green_id, rr_time_id, interval, df, factor, wb_WEBSTER, i)
             except Exception as inst:
                 error_message = QErrorMessage(self)
-                return error_message.showMessage(inst)
+                raise inst
+                return error_message.showMessage("Error en calcular Webster")
             self.ui.progressBar.setValue(i)
 
-        wb_WEBSTER.save(subarea_folder / "WEBSTER.xlsx")
+        wb_WEBSTER.save(subarea_folder / f"WEBSTER_{code}.xlsx")
         wb_WEBSTER.close()
 
         self.ui.label.setText("Done!")
