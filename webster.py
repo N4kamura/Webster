@@ -196,7 +196,10 @@ def compute_webster(
     if origin_matrix != df.index.tolist():
         print("Los accesos no coinciden entre los conteos y los datos de Webster")
         print(origin_matrix, df.index.tolist())
-
+        if scenario <= 7:
+            print("FILE: ", path_vehicles[0])
+        else:
+            print("FILE: ", path_vehicles[1])
     ###########################
     # Reading pedestrian data #
     ###########################
@@ -323,40 +326,61 @@ def compute_webster(
     for origin in origin_matrix:
         for destiny in destiny_matrix:
             flow = 0
-            if df.at[origin, "Izquierda"] == destiny:
-                for (i, o), d in zip(enumerate(list_origin), list_destination): #Encuentra que giro es, el orden, no el tipo vehicular
-                    if o == origin and d == destiny:
-                        for veh_type in range(len(array_flow)): #Accade a los conteos de cada giro solo por un tipo vehicular
-                            for giro in range(len(list_origin)): #Aquí accede al giro correspondiente para un tipo vehicular específico
-                                if giro == i:
-                                    flow += sum(array_flow[veh_type][:,giro]) #Aquí esta sumando de cada tipo vehicular un giro en específico
-                    if flow == None:
-                        df_flows.at[origin, 'Izquierda'] = 0
-                    else: df_flows.at[origin, 'Izquierda'] = flow
+            if type(df.at[origin, "Izquierda"]) == float or type(df.at[origin, "Izquierda"]) == int:
+                destinys_data = [int(df.at[origin, "Izquierda"])]
+            elif type(df.at[origin, "Izquierda"]) == str:
+                destinys_data = [int(num) for num in df.at[origin, "Izquierda"].split(",")]
+                assert destinys_data, "Error: Empty destinys_data list"
+            
+            for destiny_data in destinys_data:
+                if destiny_data == destiny:
+                    for (i, o), d in zip(enumerate(list_origin), list_destination): #Encuentra que giro es, el orden, no el tipo vehicular
+                        if o == origin and d == destiny:
+                            for veh_type in range(len(array_flow)): #Accade a los conteos de cada giro solo por un tipo vehicular
+                                for giro in range(len(list_origin)): #Aquí accede al giro correspondiente para un tipo vehicular específico
+                                    if giro == i:
+                                        flow += sum(array_flow[veh_type][:,giro]) #Aquí esta sumando de cada tipo vehicular un giro en específico
+                        if flow == None:
+                            df_flows.at[origin, 'Izquierda'] = 0
+                        else: df_flows.at[origin, 'Izquierda'] = flow
 
             flow = 0
-            if df.at[origin, "Derecha"] == destiny:
-                for (i, o), d in zip(enumerate(list_origin), list_destination):
-                    if o == origin and d == destiny:
-                        for veh_type in range(len(array_flow)):
-                            for giro in range(len(list_origin)):
-                                if giro == i:
-                                    flow += sum(array_flow[veh_type][:,giro])
-                    if flow == None:
-                        df_flows.at[origin, 'Derecha'] = 0
-                    else: df_flows.at[origin, 'Derecha'] = flow
+            if type(df.at[origin, "Derecha"]) == float or type(df.at[origin, "Derecha"]) == int:
+                destinys_data = [int(df.at[origin, "Derecha"])]
+            elif type(df.at[origin, "Derecha"]) == str:
+                destinys_data = [int(num) for num in df.at[origin, "Derecha"].split(",")]
+                assert destinys_data, "Error: Empty destinys_data list"
+
+            for destiny_data in destinys_data:
+                if destiny_data == destiny:
+                    for (i, o), d in zip(enumerate(list_origin), list_destination):
+                        if o == origin and d == destiny:
+                            for veh_type in range(len(array_flow)):
+                                for giro in range(len(list_origin)):
+                                    if giro == i:
+                                        flow += sum(array_flow[veh_type][:,giro])
+                        if flow == None:
+                            df_flows.at[origin, 'Derecha'] = 0
+                        else: df_flows.at[origin, 'Derecha'] = flow
 
             flow = 0
-            if df.at[origin, "Directo"] == destiny:
-                for (i, o), d in zip(enumerate(list_origin), list_destination):
-                    if o == origin and d == destiny:
-                        for veh_type in range(len(array_flow)):
-                            for giro in range(len(list_origin)):
-                                if giro == i:
-                                    flow += sum(array_flow[veh_type][:,giro])
-                    if flow == None:
-                        df_flows.at[origin, "Directo"] = 0
-                    else: df_flows.at[origin, 'Directo'] = flow
+            if type(df.at[origin, "Directo"]) == float or type(df.at[origin, "Directo"]) == int:
+                destinys_data = [int(df.at[origin, "Directo"])]
+            elif type(df.at[origin, "Directo"]) == str:
+                destinys_data = [int(num) for num in df.at[origin, "Directo"].split(",")]
+                assert destinys_data, "Error: Empty destinys_data list"
+
+            for destiny_data in destinys_data:
+                if destiny_data == destiny:
+                    for (i, o), d in zip(enumerate(list_origin), list_destination):
+                        if o == origin and d == destiny:
+                            for veh_type in range(len(array_flow)):
+                                for giro in range(len(list_origin)):
+                                    if giro == i:
+                                        flow += sum(array_flow[veh_type][:,giro])
+                        if flow == None:
+                            df_flows.at[origin, "Directo"] = 0
+                        else: df_flows.at[origin, 'Directo'] = flow
 
     #######################
     # Computing ADE Flows #
