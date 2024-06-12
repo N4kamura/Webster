@@ -7,9 +7,10 @@ import pandas as pd
 from openpyxl import load_workbook
 from webster import compute_webster
 import os
-import re
 import shutil
 from create_sigs import start_creating_sigs
+from src.utils import *
+import warnings
 
 class WebsterWindow(QMainWindow):
     def __init__(self):
@@ -17,102 +18,104 @@ class WebsterWindow(QMainWindow):
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
 
-        self.ui.pushButton.clicked.connect(self.vehicle_open)
-        self.ui.pushButton_2.clicked.connect(self.pedestrian_open)
-        self.ui.pushButton_3.clicked.connect(self.subarea_open)
-        self.ui.pushButton_4.clicked.connect(self.start)
-        self.ui.pushButton_5.clicked.connect(self.create_datos)
-        self.ui.pushButton_6.clicked.connect(self.multiply_sigs)
-
-    def vehicle_open(self) -> None:
-        """ Open vehicle count in excel. """
-        self.vehicle_path = QFileDialog.getOpenFileName(self, "Open File", "", "Excel Files (*.xlsm)")[0]
-        if self.vehicle_path: self.ui.lineEdit.setText(self.vehicle_path)
-
-    def pedestrian_open(self) -> None:
-        """ Open pedestrian count in excel. """
-        self.pedestrian_path = QFileDialog.getOpenFileName(self, "Open File", "", "Excel Files (*.xlsm)")[0]
-        if self.pedestrian_path: self.ui.lineEdit_2.setText(self.pedestrian_path)
+        self.ui.open_pushButton.clicked.connect(self.subarea_open)
+        self.ui.get_pushButton.clicked.connect(self.get_intersections)
+        self.ui.start_pushButton.clicked.connect(self.start)
+        self.ui.datos_pushButton.clicked.connect(self.create_datos)
+        self.ui.sigs_pushButton.clicked.connect(self.multiply_sigs)
 
     def subarea_open(self):
         self.subarea_directory = QFileDialog.getExistingDirectory(self, "Open Directory")
-        if self.subarea_directory: self.ui.lineEdit_3.setText(self.subarea_directory)
+        if self.subarea_directory: self.ui.subarea_lineEdit.setText(self.subarea_directory)
 
-    def start(self) -> None:
+    def get_intersections(self):
         try:
-            vehicle_path = Path(self.vehicle_path)
-            pedestrian_path = Path(self.pedestrian_path)
-            subarea_folder = Path(self.subarea_directory)
-        except Exception as inst:
             error_message = QErrorMessage(self)
-            return error_message.showMessage("Primero debe abrir todos los archivos")
+            self.listCodes = get_codes(self.subarea_directory, error_message)
+        except AttributeError as e:
+            error_message = QErrorMessage(self)
+            return error_message.showMessage("There is no subarea folder found")
+        except Exception as e:
+            error_message = QErrorMessage(self)
+            return error_message.showMessage(str(e))
         
-        path_datos = subarea_folder / "DATOS.xlsx"
+        codesText = ", ".join(self.listCodes)
+        self.ui.get_lineEdit.setText(codesText)
+
+    def start(self) -> None:      
+        selectedCode = self.ui.selected_lineEdit.text()
+
+        if not selectedCode:
+            error_message = QErrorMessage(self)
+            return error_message.showMessage("There is no code selected")
+        
+        #Get vehicle path:
+        pathParts = self.subarea_directory.split("/")
+        projectParts = pathParts[:-2]
+        subareaName = pathParts[-1]
+        projectParts = "\\".join(projectParts)
+
+        subareaFolder = os.path.join(
+            projectParts,
+            "7. Informacion de Campo",
+            subareaName,
+        )
+
+        excel_by_agent = {
+            "Vehicular": {
+                "Tipico": None,
+                "Atipico": None,
+            },
+            "Peatonal": {
+                "Tipico": None,
+                "Atipico": None,
+            }
+        }
+        
+        excel_by_agent, intervals = get_dict_by_agent(subareaFolder, excel_by_agent, selectedCode)
+        
+        #Lectura del excel de datos:
+        path_datos = os.path.join(
+            self.subarea_directory,
+            f"DATOS_{selectedCode}.xlsx", #TODO: Cambiar a uno con el nombre del código de la subarea.
+        )
 
         try:
-            df = pd.read_excel(path_datos, header=0, usecols="A:G", nrows=11)
+            dfTurns = pd.read_excel(path_datos, sheet_name="DATA", header=0, usecols="A:G", nrows=51, skiprows=27).dropna()
+            dfLanes = pd.read_excel(path_datos, sheet_name="DATA", header=0, usecols="I:L", nrows=51, skiprows=27).dropna()
+            dfPhases = pd.read_excel(path_datos, sheet_name="DATA", header=0, usecols="A:E", nrows=11).dropna()
         except Exception as inst:
             error_message = QErrorMessage(self)
             return error_message.showMessage("No se encontro el archivo DATOS.xlsx")
-
-        df.index = df.iloc[:,0].astype(int)
-        df =df.iloc[:,1:]
-        mapping = {'SI': True, 'NO': False}
-        df['Protegido'] = df['Protegido'].replace(mapping).infer_objects(copy=False)
-
-        try:
-            df2 = pd.read_excel(path_datos, header=0, usecols="I:L", nrows=11).dropna()
-        except Exception as inst:
-            error_message = QErrorMessage(self)
-            return error_message.showMessage("No se encontro el archivo DATOS.xlsx")
         
-        rr_time_id = df2.loc[df2['Todo Rojo'].idxmax()]['Caso']
-        min_green_id = rr_time_id
-
-        intervals = []
-        wb = load_workbook(vehicle_path, read_only=True, data_only=True)
-        ws = wb['Histograma']
-        for j in range(3):
-            peak_hour = ws.cell(18+j*7,3).value
-            hour = int((int(peak_hour[:2]) + int(peak_hour[3:5])/60)*4)
-            intervals.append(slice(hour, hour+4))
-        
-        wb.close()
-
+        #rr_time_id = df2.loc[df2['Todo Rojo'].idxmax()]['Caso']
+        #min_green_id = rr_time_id
+        #Abriendo template de webster
         path_template = r".\tools\WEBSTER.xlsx"
-
-        code = os.path.split(vehicle_path)[1]
-        code = code[:5]
-
-        vehicular_folder = vehicle_path
-        for _ in range(2):
-            vehicular_folder = os.path.split(vehicular_folder)[0]
-        
-        vehicular_folder = Path(vehicular_folder)
-        atipico_folder = vehicular_folder / "Atipico"
-        atipico_excels = os.listdir(atipico_folder)
-        pattern = r"([A-Z]+-[0-9]+)"
-        for atipico_excel in atipico_excels:
-            coincidence = re.search(pattern, atipico_excel)
-            if coincidence:
-                if coincidence[1] == code:
-                    atipico_excel_path = atipico_folder / atipico_excel
-                    break
-
-        wb = load_workbook(atipico_excel_path, read_only=True, data_only=True)
-        ws = wb['Histograma']
-        for j in range(3):
-            peak_hour = ws.cell(18+j*7,3).value
-            hour = int((int(peak_hour[:2]) + int(peak_hour[3:5])/60)*4)
-            intervals.append(slice(hour, hour+4))
-        
-        wb.close()
 
         try:
             wb_WEBSTER = load_workbook(path_template, read_only=False, data_only=False)
         except Exception as inst:
             error_message = QErrorMessage(self)
             return error_message.showMessage("No se encontro el archivo de template WEBSTER.xlsx")
+
+        wbVehicleTipico = load_workbook(
+            excel_by_agent["Vehicular"]["Tipico"],
+            read_only=True,
+            data_only=True,
+        )
+
+        wbVehicleAtipico = load_workbook(
+            excel_by_agent["Vehicular"]["Atipico"],
+            read_only=True,
+            data_only=True,
+        )
+        
+        wbPedestrianTipico = load_workbook(
+            excel_by_agent["Peatonal"]["Tipico"],
+            read_only=True,
+            data_only=True,
+        )
 
         for i in range(13):
             #Factores
@@ -142,26 +145,51 @@ class WebsterWindow(QMainWindow):
                 interval = intervals[5]
 
             try:
-                compute_webster([vehicle_path, atipico_excel_path], pedestrian_path, min_green_id, rr_time_id, interval, df, factor, wb_WEBSTER, i)
+                compute_webster(
+                    wbVehicleTipico,
+                    wbVehicleAtipico,
+                    wbPedestrianTipico,
+                    dfTurns, dfLanes, dfPhases, #Dataframes enviados
+                    interval, factor, wb_WEBSTER, i #Datos según cada escenario
+                    )
             except Exception as inst:
+                raise inst
                 error_message = QErrorMessage(self)
                 return error_message.showMessage("Error en calcular Webster")
-            self.ui.progressBar.setValue(i)
 
-        wb_WEBSTER.save(subarea_folder / f"WEBSTER_{code}.xlsx")
+        wb_WEBSTER.save(
+            os.path.join(
+                self.subarea_directory,
+                f"WEBSTER_{selectedCode.upper()}.xlsx", #TODO: Change after fix compute_webster
+                )
+            )
+        wbVehicleTipico.close()
+        wbVehicleAtipico.close() 
+        wbPedestrianTipico.close()
         wb_WEBSTER.close()
 
         self.ui.label.setText("Done!")
 
+        #TODO: Falta ahora corregir la función de cálculo de Webster, ya se esta enviando la información.
+
     def create_datos(self) -> None:
         origin_route = r".\tools\DATOS.xlsx"
-        destiny_route = Path(self.subarea_directory) / "DATOS.xlsx"
+
+        if self.ui.get_lineEdit.text == "":
+            error_message = QMessageBox(self)
+            return error_message.setText("Selected code is empty. Choose a code first!")
+        
+        destiny_route = os.path.join(
+            self.subarea_directory,
+            f"DATOS_{self.ui.get_lineEdit.text}.xlsx",
+        )
+
         shutil.copy2(origin_route, destiny_route)
         info_message = QMessageBox(self)
         info_message.setIcon(QMessageBox.Information)
         info_message.setWindowTitle("Info")
-        info_message.setText("Se ha creado el archivo DATOS.xlsx")
-        info_message.show()
+        info_message.setText(f"Se ha creado el archivo DATOS_{self.ui.get_lineEdit.text}.xlsx")
+        return info_message.show()
 
     def multiply_sigs(self) -> None:
         """ Create SIG from a unique sig file in ./Tipico/HPM folder. """
@@ -206,6 +234,7 @@ class WebsterWindow(QMainWindow):
                 break
 
 def main():
+    warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
     app = QApplication(sys.argv)
     app.processEvents()
     window = WebsterWindow()
