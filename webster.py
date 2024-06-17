@@ -8,6 +8,8 @@ from pathlib import Path
 import warnings
 from unidecode import unidecode
 from src.utils import *
+import logging
+from itertools import product
 
 warnings.filterwarnings("ignore",category=FutureWarning)
 
@@ -15,9 +17,11 @@ warnings.filterwarnings("ignore",category=FutureWarning)
 # Default data and tables #
 ###########################
 
-laneClassification = { #TODO: CHEQUEAR.
-    "Vecinal": 800,
-    "Metropolitana": 1200,
+laneClassification = { #NOTE: Pueden afectar los cálculos, pero son conservadores. Estan por carril.
+    "Local": 800,
+    "Avenida": 1200,
+    "Expresa": 1600,
+    None: None,
 }
 
 min_green = {
@@ -30,18 +34,18 @@ min_green = {
     7: [17,25],
 }
 
+def _process_list(turns: list):
+    newList = []
+
+    for item in turns:
+        if isinstance(item, str):
+            newList.extend(map(int, item.split(',')))
+        else:
+            newList.append(item)
+    return newList
+
 def _apply_green(usedCase):
     return min_green[usedCase][1]
-
-# rr_time = {
-#     1: 2, #Nro.case: total red time
-#     2: 2,
-#     3: 2,
-#     4: 3,
-#     5: 3,
-#     6: 4,
-#     7: 4,
-# }
 
 #UCP Values:
 HEAVY_VEHICLES = [
@@ -81,22 +85,22 @@ def compute_webster(
         wbVehicleTipico: str,
         wbVehicleAtipico: str,
         wbPedestrianTipico: str,
-        #min_green_id: int,
-        #rr_time_id: int,
         dfTurns: pd.DataFrame,
         dfLanes: pd.DataFrame,
         dfPhases: pd.DataFrame,
         interval: slice, #slice(28, 32)
-        #df: pd.DataFrame,
         FACTOR: float,
         wb_WEBSTER: load_workbook,
         scenario: int,
+        logger: logging,
         ) -> None:
 
     if scenario <= 7:
         wb = wbVehicleTipico
+        logger.info("Escenario Típico")
     else:
         wb = wbVehicleAtipico
+        logger.info("Escenario Atípico")
 
     #UCP VALUES
     ws = wb['Inicio']
@@ -126,24 +130,32 @@ def compute_webster(
             FACTOR,
             interval,
         )
-        #wb.close()
     except Exception as e:
         raise e
+    
+    logger.debug("Flujos:\t\tPassed")
 
     array_flow_ucp = array_flow.copy()
     for veh_type in range(len(array_flow_ucp)):
         array_flow_ucp[veh_type] *= float(ucp_values[veh_type])
 
     origin_matrix = list(set(list_origin))
-    destiny_matrix = list(set(list_destination))
+    #destiny_matrix = list(set(list_destination))
 
-    if origin_matrix != dfTurns["Origen"].unique().tolist():
+    #FIXME: No siempre los orígenes coinciden entre los conteos y los datos de Webster
+    listTurns = _process_list(dfTurns["Origen"].unique().tolist())
+    listTurns = list(set(listTurns))
+
+    if origin_matrix != listTurns:
         print("Los accesos no coinciden entre los conteos y los datos de Webster")
+        logger.error("Los accesos no coinciden entre los conteos y los datos de Webster")
         print(origin_matrix, dfTurns["Origen"].unique().tolist())
+        logger.error(origin_matrix)
+        logger.error(dfTurns["Origen"].unique().tolist())
         if scenario <= 7:
-            print("FILE: ", wbVehicleTipico)
+            print("FILE: ", wbVehicleTipico) #HACK: Solo por ahora
         else:
-            print("FILE: ", wbVehicleAtipico)
+            print("FILE: ", wbVehicleAtipico) #HACK: Solo por ahora
 
     #################################################################
     # Reading pedestrian data and obtaining maximum pedestrian flow # 
@@ -151,14 +163,12 @@ def compute_webster(
 
     max_ped_flow = pedestrian_flows(wbPedestrianTipico, interval)
 
-    #wb.close() #TODO: Close?
-
     ###############
     # Compute Fhv #
     ###############
 
     access_percentage = {}
-    for origin in origin_matrix: #Test this
+    for origin in origin_matrix: #NOTE: Puse que faltaba testearlo, creo que sí estaba.
         heavy_flows = [0 for _ in range(len(array_flow))]
         total_flows = 0
         for veh_type in range(len(array_flow)):
@@ -173,12 +183,16 @@ def compute_webster(
         percentage = [round(x/total_flows,4) if total_flows!= 0 else 0 for x in heavy_flows]
         access_percentage[origin] = percentage
 
+    logger.info("Porcentaje de vehículos pesados:\tPassed")
+
     fhv_by_access = {}
     for access in access_percentage:
         denominator = [P*(ucp_value-1) for P, ucp_value in zip(access_percentage[access], ucp_values)]
         denominator = 100 + sum(denominator)
         fhv = 100 / denominator
         fhv_by_access[access] = round(fhv,4)
+
+    logger.info("Flujos en UCP:\t\tPassed")
 
     ##########################
     # Computing Normal Flows #
@@ -189,6 +203,8 @@ def compute_webster(
     for origin in origin_matrix:
         for direction in ["Izquierda", "Derecha", "Directo"]:
             compute_flows(origin, dfTurns, direction, df_flows, array_flow)
+
+    logger.info("Flujos normales:\tPassed")
 
     #######################
     # Computing ADE Flows #
@@ -205,6 +221,7 @@ def compute_webster(
         if not dfTurns[(dfTurns["Origen"] == access) & (dfTurns["Giro"] == "Directo")].empty:
             qd = math.ceil(df_flows.at[access, "Directo"]/0.95/fhv_by_access[access]) #<--- FACTOR DE HORA PUNTA SE CONSIDERO 0.95
         else: qd = 0
+        logger.info(f"{access} qd: " + str(qd))
         
         #Izquierda (qvi):
         listLeftIndexes = dfTurns[(dfTurns["Origen"] == access) & (dfTurns["Giro"] == "Izquierda")].index.tolist()
@@ -243,6 +260,7 @@ def compute_webster(
             qvi = math.ceil(df_flows.at[access, "Izquierda"]/0.95/fhv_by_access[access]*Evi)
         else:
             qvi = 0
+        logger.info(f"{access} qvi: " + str(qvi))
 
         #Derecha (qvd):
         serie = [0,50,200,400,800]
@@ -260,6 +278,7 @@ def compute_webster(
             qvd = math.ceil(df_flows.at[access, "Derecha"]/0.95/fhv_by_access[access]*Evd)
         else:
             qvd = 0
+        logger.info(f"{access} qvd: " + str(qvd))
 
         #Asignación de flujos directos equivalentes
         df_flows_ade.at[count, "Origen"] = access
@@ -276,11 +295,15 @@ def compute_webster(
     dfPhases["Ii"] = dfPhases["Ambar"] + dfPhases["Todo Rojo"]
     L = dfPhases["Ii"].sum()
 
+    logger.info("Tiempo perdido s/peatones: " + str(L))
+
     #print("Solo A y RR = ", L)
     
     #Lost time by pedestrian green phase
     dfPhases["green"] = dfPhases.apply(lambda row: _apply_green(row["Caso"]) if row["Tipo"] == "P" else 0, axis=1)
     L += dfPhases["green"].sum()
+
+    logger.info("Tiempo perdido c/peatones: " + str(L))
 
     #print("Incluye peatonal = ", L)
 
@@ -291,7 +314,8 @@ def compute_webster(
     #Origin by phases
     phasesList = []
     for index, value in dfTurns.iterrows():
-        phasesList.append(value["Fase"])
+        for valor in value["Fase"]:
+            phasesList.append(valor)
     
     phasesList = list(set(phasesList))
 
@@ -299,9 +323,10 @@ def compute_webster(
     for noPhase in phasesList:
         phasesByAccess = []
         for index, value in dfTurns.iterrows():
-            if value["Fase"] == noPhase:
-                phasesByAccess.append(value["Origen"])
-        phasesByAccess = list(set(phasesByAccess))
+            for valuePhase in value["Fase"]:
+                if valuePhase == noPhase:
+                    phasesByAccess.append(value["Origen"])
+            phasesByAccess = list(set(phasesByAccess))
         phasesDict[noPhase] = phasesByAccess
 
     #Maximum flows
@@ -310,14 +335,76 @@ def compute_webster(
         maximum_flows_ade = 0
         for _, row in df_flows_ade.iterrows():
             if row["Origen"] in originList:
-                numerator = row["Directo"] + row["Izquierda"] + row["Derecha"] + row["Izquierda"]
-                capacity = laneClassification[dfLanes[dfLanes["Origen.1"] == 1]["Clasificación"].unique()[0]]
-                denominator = dfLanes[dfLanes["Origen.1"] == 1]["Carriles"].unique()[0]*capacity
+                numerator = row["Directo"] + row["Izquierda"] + row["Derecha"]
+                capacity = laneClassification[dfLanes[dfLanes["Origen.1"] == row['Origen']]["Clasificación"].unique().tolist()[0]] #NOTE: ¿Existe una forma más pythonic de hacerlo? Es un objeto tipo dataframe
+                denominator = dfLanes[dfLanes["Origen.1"] == row['Origen']]["Carriles"].unique().tolist()[0]*capacity #NOTE: ¿Existe una forma más pythonic de hacerlo? Es un objeto tipo dataframe
                 sum_flows = numerator / denominator
                 if sum_flows > maximum_flows_ade:
                     maximum_flows_ade = sum_flows
         maxRelations_by_phase[phase] = round(maximum_flows_ade, 3)
 
+    logger.info("Relaciones maxima de flujo por fase: " + str(maxRelations_by_phase))
+    #print(maxRelations_by_phase)
+
+    #####################
+    # Cmin CRITIC ROUTE #
+    #####################
+
+    #Matriz con capacidades y suma
+
+    dfLanes["Capacidad"] = dfLanes["Clasificación"].apply(lambda x: laneClassification[x])
+
+    dfCritic = df_flows_ade.copy()
+    dfCritic["Suma"] = dfCritic["Directo"] + dfCritic["Izquierda"] + dfCritic["Derecha"]
+    dfCritic["Capacidad"] = np.nan
+
+    for indexCritic, rowCritic in dfCritic.iterrows():
+        for _, rowLanes in dfLanes.iterrows():
+            if rowCritic["Origen"] == rowLanes["Origen.1"]:
+                dfCritic.loc[indexCritic, "Capacidad"] = rowLanes["Capacidad"]
+
+    dfCritic["Y"] = np.nan
+    for indexCritic, rowCritic in dfCritic.iterrows():
+        try:
+            dfCritic.loc[indexCritic, "Y"] = rowCritic["Suma"] / rowCritic["Capacidad"]
+        except:
+            continue
+
+    dfCritic["ti"] = dfCritic["Y"].apply(lambda x: 5+111*x) #NOTE: xpi = 0.9 and C = 100 seconds
+
+    #Combinaciones de todas las ruats
+    listPaths = []
+    for listOrigins in phasesDict.values():
+        listPaths.append(listOrigins)
+
+    combinations = list(product(*listPaths)) #combinations: lista de todas las rutas posibles
+
+    #Obtención del movimiento crítico con combinations y dfCritic
+    maxValueCombo = 0
+    finalList = None
+    for combo in combinations:
+        sumTime = 0
+        indexListCombo = []
+        for originValue in combo: #Sumar todo el valor del combo y comparar con otros
+            for indexCritic, rowCritic in dfCritic.iterrows():
+                if rowCritic["Origen"] == originValue:
+                    sumTime += rowCritic["ti"]
+                    indexListCombo.append(indexCritic)
+
+        if sumTime > maxValueCombo:
+            maxValueCombo = sumTime
+            finalList = indexListCombo
+
+    Y = 0
+    for indexSelected in finalList:
+        Y += dfCritic.loc[indexSelected, "Y"]
+
+    ###########################
+    # IMPRESION DE DATAFRAMES #
+    ###########################
+
+    # print("df_flows_ade: \n", df_flows_ade)
+    # print("dfCritic: \n",dfCritic)
     print(maxRelations_by_phase)
 
     ###########################
@@ -328,13 +415,15 @@ def compute_webster(
 
     MAX_GREEN = dfPhases["green"].max()
 
-    if sum(maxRelations_by_phase) <= 0.80: 
+    if sum(maxRelations_by_phase.values()) <= 0.80: 
         Cw = (1.5*L + 5) // (1 - sum(maxRelations_by_phase.values()))
-        Cmin = L/(1-sum(maxRelations_by_phase.values()))
+        #Cmin = L/(1-sum(maxRelations_by_phase.values())) #NOTE: Ha sido cambiado por el método de la ruta crítica
+        Cmin = 15/(1-Y)
         Cp = L/(1-1.1*sum(maxRelations_by_phase.values()))
         Ccruce = MAX_GREEN + L
         Cmax = 150 + MAX_GREEN
         ws.cell(17,2).value = "Los flujos no superan la capacidad, seleccionar el tiempo de ciclo de las opciones propuestas."
+        logger.info("Los flujos no superan la capacidad")
     else:
         Cw = 0
         Cmin = 0
@@ -342,6 +431,7 @@ def compute_webster(
         Ccruce = MAX_GREEN + L
         Cmax = 150+MAX_GREEN
         ws.cell(17,2).value = "Los flujos superan la capacidad, se recomienda al simulador establecer el Tiempo de Ciclo."
+        logger.info("Los flujos superan la capacidad de 0.80")
 
     #Tiempo de Ciclo
     ws.cell(scenario+2,3).value = Cmax
@@ -352,22 +442,27 @@ def compute_webster(
 
     #Ingresar A y RR:
     for rowIndex, rowPhase in dfPhases.iterrows():
-        ws.cell(scenario+1, 23+rowIndex*3).value = rowPhase["Ambar"]
-        ws.cell(scenario+1, 24+rowIndex*3).value = rowPhase["Todo Rojo"]
+        ws.cell(scenario+2, 23+rowIndex*3).value = rowPhase["Ambar"]
+        ws.cell(scenario+2, 24+rowIndex*3).value = rowPhase["Todo Rojo"]
 
     #Ingreso de Ys:
     for phaseNo, relation in maxRelations_by_phase.items():
-        ws.cell(scenario+2, 10+phaseNo).value = relation
+        ws.cell(scenario+2, 10+phaseNo).value = relation #TODO: EDITAR NUEVAMENTE SI HAY.
 
     #Verdes peatonales:
     pedestrianGreenAccumulative = 0
     for rowIndex, rowPhase in dfPhases.iterrows():
         if rowPhase["Tipo"] == "P":
             pedestrianGreen = min_green[rowPhase["Caso"]][1]
-            ws.cell(scenario+2, 22+rowIndex*3).value = pedestrianGreen
+            ws.cell(scenario+2, 22+rowIndex*3).value = pedestrianGreen 
             pedestrianGreenAccumulative += pedestrianGreen
 
     #Pérdidas por verdes peatonales:
     ws.cell(scenario+2, 9).value = pedestrianGreenAccumulative
+
+    #Tiempos mínimos de verde usados:
+    for rowIndex, rowPhase in dfPhases.iterrows():
+        minGreenGeneral = min_green[rowPhase["Caso"]][1]
+        ws.cell(scenario+2, 37+rowIndex).value = minGreenGeneral
 
     return None

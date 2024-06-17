@@ -3,6 +3,13 @@ import os
 from openpyxl import load_workbook
 import re
 import numpy as np
+import pandas as pd
+
+def process_elem(item: str | int) -> list:
+    if isinstance(item, str):
+        return list(map(int, item.split(',')))
+    else:
+        return [item]
 
 def get_codes(subareaPath, error_message):
     listContent = os.listdir(subareaPath)
@@ -238,7 +245,7 @@ def pedestrian_flows(wb: load_workbook, interval: slice):
 
     return max_ped_flow
 
-def compute_flows(origin, dfTurns, direction, dfFlows, array_flow):
+def compute_flows(origin: int, dfTurns: pd.DataFrame, direction: int, dfFlows: pd.DataFrame, array_flow):
     flow = 0
     listTurn = dfTurns[(dfTurns["Origen"] == origin) & (dfTurns["Giro"] == direction)].index.tolist()
     for leftTurnIndex in listTurn:

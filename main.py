@@ -11,6 +11,12 @@ import shutil
 from create_sigs import start_creating_sigs
 from src.utils import *
 import warnings
+import logging
+from tqdm import tqdm
+
+LOGGER = logging.getLogger(__name__)
+LOGGER.setLevel(logging.DEBUG)
+f = logging.Formatter("%(asctime)s-%(levelname)s: %(message)s")
 
 class WebsterWindow(QMainWindow):
     def __init__(self):
@@ -26,7 +32,15 @@ class WebsterWindow(QMainWindow):
 
     def subarea_open(self):
         self.subarea_directory = QFileDialog.getExistingDirectory(self, "Open Directory")
-        if self.subarea_directory: self.ui.subarea_lineEdit.setText(self.subarea_directory)
+        if self.subarea_directory:
+            self.ui.subarea_lineEdit.setText(self.subarea_directory)
+            logPath = os.path.join(self.subarea_directory, "logs")
+            if not os.path.exists(logPath):
+                os.mkdir(logPath)
+
+            fh = logging.FileHandler(os.path.join(logPath, "Distro.log"), mode='w')
+            fh.setFormatter(f)
+            LOGGER.addHandler(fh)
 
     def get_intersections(self):
         try:
@@ -82,7 +96,11 @@ class WebsterWindow(QMainWindow):
 
         try:
             dfTurns = pd.read_excel(path_datos, sheet_name="DATA", header=0, usecols="A:G", nrows=51, skiprows=27).dropna()
+            dfTurns['Fase'] = dfTurns['Fase'].apply(process_elem)
             dfLanes = pd.read_excel(path_datos, sheet_name="DATA", header=0, usecols="I:L", nrows=51, skiprows=27).dropna()
+            dfLanes["Destino.1"] = pd.to_numeric(dfLanes["Destino.1"], errors="coerce")
+            dfLanes["Destino.1"] = dfLanes["Destino.1"].astype("Int64")
+            dfLanes["Origen.1"] = dfLanes["Origen.1"].astype("Int64")
             dfPhases = pd.read_excel(path_datos, sheet_name="DATA", header=0, usecols="A:E", nrows=11).dropna()
         except Exception as inst:
             error_message = QErrorMessage(self)
@@ -144,16 +162,17 @@ class WebsterWindow(QMainWindow):
             elif 12 <= i+1:
                 interval = intervals[5]
 
+            print(f"Cargando: {i+1}/13")
             try:
                 compute_webster(
                     wbVehicleTipico,
                     wbVehicleAtipico,
                     wbPedestrianTipico,
                     dfTurns, dfLanes, dfPhases, #Dataframes enviados
-                    interval, factor, wb_WEBSTER, i #Datos según cada escenario
+                    interval, factor, wb_WEBSTER, i, #Datos según cada escenario
+                    LOGGER,
                     )
             except Exception as inst:
-                raise inst
                 error_message = QErrorMessage(self)
                 return error_message.showMessage("Error en calcular Webster")
 
@@ -174,21 +193,21 @@ class WebsterWindow(QMainWindow):
 
     def create_datos(self) -> None:
         origin_route = r".\tools\DATOS.xlsx"
-
+        
         if self.ui.get_lineEdit.text == "":
             error_message = QMessageBox(self)
             return error_message.setText("Selected code is empty. Choose a code first!")
         
         destiny_route = os.path.join(
             self.subarea_directory,
-            f"DATOS_{self.ui.get_lineEdit.text}.xlsx",
+            f"DATOS_{self.ui.selected_lineEdit.text().upper()}.xlsx",
         )
 
         shutil.copy2(origin_route, destiny_route)
         info_message = QMessageBox(self)
         info_message.setIcon(QMessageBox.Information)
         info_message.setWindowTitle("Info")
-        info_message.setText(f"Se ha creado el archivo DATOS_{self.ui.get_lineEdit.text}.xlsx")
+        info_message.setText(f"Se ha creado el archivo DATOS_{self.ui.selected_lineEdit.text().upper()}.xlsx")
         return info_message.show()
 
     def multiply_sigs(self) -> None:
