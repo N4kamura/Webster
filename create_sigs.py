@@ -89,7 +89,7 @@ def _get_greens(
 
 def start_creating_sigs(
         webs_xlsx: str | Path, #Route of excel.
-        code_int: str, #Code of intersection
+        code_int: str, #Code of intersectio
         ) -> None:
 
     begin_dict = _get_greens(webs_xlsx)

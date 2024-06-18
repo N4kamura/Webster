@@ -4,6 +4,7 @@ from openpyxl import load_workbook
 import re
 import numpy as np
 import pandas as pd
+import win32com.client as win32
 
 def process_elem(item: str | int) -> list:
     if isinstance(item, str):
@@ -45,6 +46,8 @@ def _get_interval_from_excel(excelPath) -> slice:
         peakHour = ws.cell(18+j*7,3).value
         hour = int((int(peakHour[:2]) + int(peakHour[3:5])/60)*4)
         intervals.append(slice(hour, hour + 4))
+    
+    wb.close()
     
     return intervals
 
@@ -255,3 +258,31 @@ def compute_flows(origin: int, dfTurns: pd.DataFrame, direction: int, dfFlows: p
         dfFlows.at[origin, direction] = 0
     else:
         dfFlows.at[origin, direction] = flow
+
+def duplicate_name_sheets(excelPath: str, listCodes: list, finalPath: str) -> None:
+    excel = win32.gencache.EnsureDispatch('Excel.Application')
+    excel.Visible = False
+    excel.DisplayAlerts = False
+
+    try:
+        #Starting the excel
+        workBook = excel.Workbooks.Open(excelPath)
+        mainSheet = workBook.Sheets('DATA') #I uniformized everything with this name
+
+        #Create new sheets
+        for code in listCodes:
+            mainSheet.Copy(After=mainSheet)
+            newSheet = workBook.Sheets[mainSheet.Index + 1]
+            newSheet.Name = code
+
+        #Delete sheets
+        workBook.Worksheets(2).Delete()
+    except:
+        pass
+
+    #End with the excel
+    workBook.SaveAs(finalPath)
+    workBook.Close(SaveChanges = True)
+    excel.Application.Quit()
+
+    del excel

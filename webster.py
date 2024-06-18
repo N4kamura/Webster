@@ -82,6 +82,7 @@ df_Evd.loc[[0,50,200,400,800],["Equivalente"]] = DATA_DER
 ##########################
 
 def compute_webster(
+        code: str,
         wbVehicleTipico: str,
         wbVehicleAtipico: str,
         wbPedestrianTipico: str,
@@ -90,7 +91,7 @@ def compute_webster(
         dfPhases: pd.DataFrame,
         interval: slice, #slice(28, 32)
         FACTOR: float,
-        wb_WEBSTER: load_workbook,
+        ws, #sheet de workbook
         scenario: int,
         logger: logging,
         ) -> None:
@@ -405,13 +406,11 @@ def compute_webster(
 
     # print("df_flows_ade: \n", df_flows_ade)
     # print("dfCritic: \n",dfCritic)
-    print(maxRelations_by_phase)
+    #print(maxRelations_by_phase)
 
     ###########################
     # COMPUTING OPTIMAL CYCLE #
     ###########################
-
-    ws = wb_WEBSTER['WEBSTER']
 
     MAX_GREEN = dfPhases["green"].max()
 
