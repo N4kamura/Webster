@@ -5,6 +5,8 @@ import re
 import numpy as np
 import pandas as pd
 import win32com.client as win32
+from dataclasses import dataclass
+from pathlib import Path
 
 def process_elem(item: str | int) -> list:
     if isinstance(item, str):
@@ -260,9 +262,13 @@ def compute_flows(origin: int, dfTurns: pd.DataFrame, direction: int, dfFlows: p
         dfFlows.at[origin, direction] = flow
 
 def duplicate_name_sheets(excelPath: str, listCodes: list, finalPath: str) -> None:
-    excel = win32.gencache.EnsureDispatch('Excel.Application')
-    excel.Visible = False
-    excel.DisplayAlerts = False
+    try:
+        excel = win32.gencache.EnsureDispatch('Excel.Application')
+        excel.Visible = False
+        excel.DisplayAlerts = False
+    except Exception as inst:
+        excel.Application.Quit()
+        raise inst
 
     try:
         #Starting the excel
@@ -276,13 +282,108 @@ def duplicate_name_sheets(excelPath: str, listCodes: list, finalPath: str) -> No
             newSheet.Name = code
 
         #Delete sheets
-        workBook.Worksheets(2).Delete()
-    except:
-        pass
+        mainSheet.Delete()
+        #workBook.Worksheets(2).Delete()
+    except Exception as inst:
+        excel.Application.Quit()
+        raise inst
 
     #End with the excel
-    workBook.SaveAs(finalPath)
-    workBook.Close(SaveChanges = True)
-    excel.Application.Quit()
+    finalPath = os.path.normpath(finalPath)
 
-    del excel
+    try:
+        workBook.SaveAs(finalPath)
+        workBook.Close(SaveChanges = True)
+    except Exception as inst:
+        excel.Application.Quit()
+        raise inst
+
+def data2excel(subareaFolder: str, destiny_route: str) -> None:
+    """ Create an excel with data from counting files. """
+    #Find field files:
+    pathDirectory = Path(subareaFolder)
+    subareaName = pathDirectory.name
+    projectPath = pathDirectory.parents[1] #Va alrevés
+    fieldPath = projectPath / "7. Informacion de Campo" / subareaName / "Vehicular"
+    typicalPath = fieldPath / "Tipico"
+    excelVehicles = os.listdir(typicalPath)
+    pattern = r"([A-Z]+-[0-9]+)"
+
+    @dataclass
+    class excelData:
+        origins: list
+        destinations: list
+        names: list
+
+    dictInfo = {}
+
+    for excel in excelVehicles:
+        excelPath = typicalPath / excel
+        code = re.search(pattern, excel).group(1)
+        wb = load_workbook(excelPath, read_only=True, data_only=True)
+        ws = wb["Inicio"]
+        slicesOrigin = [
+            slice("E12", "E22"),
+            slice("K12", "K22"),
+            slice("E24", "E34"),
+            slice("K24", "K34"),
+        ]
+
+        slicesDestination = [
+            slice("F12", "F22"),
+            slice("L12", "L22"),
+            slice("F24", "F34"),
+            slice("L24", "L34"),
+        ]
+
+        slicesNames = [
+            slice("G12", "G22"),
+            slice("M12", "M22"),
+            slice("G24", "G34"),
+            slice("M24", "M34"),
+        ]
+        
+        listOrigins = []
+        listDestinations = []
+        listNames = []
+
+        for sliceOrigin, sliceDestination, sliceName in zip(slicesOrigin, slicesDestination, slicesNames):
+            content = [row[0].value for row in ws[sliceOrigin] if row[0].value is not None]
+            listOrigins.extend(content)
+            content = [row[0].value for row in ws[sliceDestination] if row[0].value is not None]
+            listDestinations.extend(content)
+            content = [row[0].value for row in ws[sliceName] if row[0].value is not None]
+            listNames.extend(content)
+
+        wb.close()
+
+        data = excelData(
+            origins = listOrigins,
+            destinations = listDestinations,
+            names = listNames
+        )
+
+        dictInfo[code] = data
+
+    #Writing data in excel
+
+    excel = win32.Dispatch('Excel.Application')
+    excel.Visible = False
+    excel.DisplayAlerts = False
+
+    wb = excel.Workbooks.Open(destiny_route)
+
+    for nameSheet, dataList in dictInfo.items():
+        ws = wb.Sheets[nameSheet]
+        for i in range(len(dataList.origins)):
+            ws.Cells(29+i, 1).Value = dataList.origins[i]
+            ws.Cells(29+i, 2).Value = dataList.destinations[i]
+            ws.Cells(29+i, 4).Value = dataList.names[i]
+
+        originList = list(set(dataList.origins))
+        
+        for j, origin in enumerate(originList):
+            ws.Cells(29+j, 10).Value = origin
+
+    wb.Save()
+    wb.Close()

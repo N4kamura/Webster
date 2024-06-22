@@ -12,7 +12,9 @@ from create_sigs import start_creating_sigs
 from src.utils import *
 import warnings
 import logging
-from PyQt5.QtCore import QThread, pyqtSignal
+from tqdm import tqdm
+import re
+from dataclasses import dataclass
 
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
@@ -83,12 +85,15 @@ class WebsterWindow(QMainWindow):
         )
 
         #Abriendo template de webster
-        path_template = r".\tools\WEBSTER.xlsx"
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        path_template = os.path.join(script_dir, 'tools', 'WEBSTER.xlsx')
+        #path_template = r".\tools\WEBSTER.xlsx"
 
         finalPath = os.path.join(
                 self.subarea_directory,
                 "Program_Results.xlsx",
                 )
+
         try:
             duplicate_name_sheets(
                 excelPath=path_template,
@@ -99,7 +104,7 @@ class WebsterWindow(QMainWindow):
             raise inst
 
         try:
-            wb_WEBSTER = load_workbook(path_template, read_only=False, data_only=False)
+            wb_WEBSTER = load_workbook(finalPath, read_only=False, data_only=False)
         except Exception as inst:
             error_message = QErrorMessage(self)
             return error_message.showMessage("No se encontro el archivo de template WEBSTER.xlsx")
@@ -110,18 +115,24 @@ class WebsterWindow(QMainWindow):
         self.ui.progressBar.setMaximum(len(self.listCodes))
 
         for iteration, code in enumerate(self.listCodes):
+            print(f"{f' Calculando intersección {code} ':#^{50}}")
             try:
                 excel_by_agent, intervals = get_dict_by_agent(subareaFolder, excel_by_agent, code)
             except Exception as inst:
                 raise inst
             
             try:
-                dfTurns = pd.read_excel(path_datos, sheet_name=code, header=0, usecols="A:G", nrows=51, skiprows=27).dropna()
+                dfTurns = pd.read_excel(path_datos, sheet_name=code, header=0, usecols="A:H", nrows=51, skiprows=27).dropna()
                 dfTurns['Fase'] = dfTurns['Fase'].apply(process_elem)
-                dfLanes = pd.read_excel(path_datos, sheet_name=code, header=0, usecols="I:L", nrows=51, skiprows=27).dropna()
+                dfTurns = dfTurns[dfTurns['Considerar'] != 'NO']
+
+                print(dfTurns)
+
+                dfLanes = pd.read_excel(path_datos, sheet_name=code, header=0, usecols="J:N", nrows=51, skiprows=27).dropna()
                 dfLanes["Destino.1"] = pd.to_numeric(dfLanes["Destino.1"], errors="coerce")
                 dfLanes["Destino.1"] = dfLanes["Destino.1"].astype("Int64")
                 dfLanes["Origen.1"] = dfLanes["Origen.1"].astype("Int64")
+
                 dfPhases = pd.read_excel(path_datos, sheet_name=code, header=0, usecols="A:E", nrows=11).dropna()
             except Exception as inst:
                 error_message = QErrorMessage(self)
@@ -145,7 +156,7 @@ class WebsterWindow(QMainWindow):
                 data_only=True,
             )
 
-            for i in range(13):
+            for i in tqdm(range(13)):
                 #Factores
                 if i+1 == 1 or i+1 == 9:
                     factor = 0.30
@@ -172,17 +183,15 @@ class WebsterWindow(QMainWindow):
                 elif 12 <= i+1:
                     interval = intervals[5]
 
-                print(f"Cargando: {i+1}/13")
+                #print(f"Cargando: {i+1}/13")
                 try:
                     compute_webster(
-                        code,
                         wbVehicleTipico,
                         wbVehicleAtipico,
                         wbPedestrianTipico,
                         dfTurns, dfLanes, dfPhases, #Dataframes enviados
                         interval, factor, wb_WEBSTER[code], i, #<------ Aquí se le enviaría el sheet que le corresponde
                         LOGGER,
-                        self.ui.progressBar,
                         )
                 except Exception as inst:
                     error_message = QErrorMessage(self)
@@ -203,8 +212,9 @@ class WebsterWindow(QMainWindow):
 
         self.ui.label.setText("Done!")
         self.ui.progressBar.setValue(len(self.listCodes))
+        print(f"{' CÁLCULOS FINALIZADOS ':#^{50}}")
 
-    def create_datos(self) -> None:
+    def create_datos(self) -> None: #Ready
         #Get list of codes
         try:
             error_message = QErrorMessage(self)
@@ -216,23 +226,42 @@ class WebsterWindow(QMainWindow):
             error_message = QErrorMessage(self)
             return error_message.showMessage(str(e))
         
-        origin_route = r".\tools\DATOS.xlsx"
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        origin_route = os.path.join(script_dir, 'tools', 'DATOS.xlsx')
         
         destiny_route = os.path.join(
             self.subarea_directory,
             "Program_Configuration.xlsx",
         )
 
-        duplicate_name_sheets(
-            excelPath=origin_route,
-            listCodes=self.listCodes,
-            finalPath=destiny_route,
-        )
+        try:
+            duplicate_name_sheets(
+                excelPath=origin_route,
+                listCodes=self.listCodes,
+                finalPath=destiny_route,
+            )
+        except Exception as inst:
+            error_message = QErrorMessage(self)
+            return error_message.showMessage(str(inst))
 
+        ##################
+        # Inserting data #
+        ##################
+
+        try:
+            data2excel(
+                subareaFolder=self.subarea_directory,
+                destiny_route=destiny_route,
+                )
+        except Exception as inst:
+            error_message = QErrorMessage(self)
+            return error_message.showMessage(str(inst))
+
+        #Showing message
         info_message = QMessageBox(self)
         info_message.setIcon(QMessageBox.Information)
         info_message.setWindowTitle("Info")
-        info_message.setText("Se ha creado el archivo Program_Configuration exitosamente.xlsx")
+        info_message.setText("Se ha creado el archivo 'Program_Configuration.xlsx' exitosamente")
         return info_message.show()
 
     def multiply_sigs(self) -> None:
@@ -259,7 +288,7 @@ class WebsterWindow(QMainWindow):
 
         self.ui.label.setText("Copied!")
 
-    def create_sig_webster(self) -> None:
+    def create_sig_webster(self) -> None: #NOTE: OUTDATED!
         """ Modify all sigs according to Webster times. """
         code = os.path.split(self.vehicle_path)[1][:5]
         subarea_folder = Path(self.subarea_directory)

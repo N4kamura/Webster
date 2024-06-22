@@ -82,7 +82,6 @@ df_Evd.loc[[0,50,200,400,800],["Equivalente"]] = DATA_DER
 ##########################
 
 def compute_webster(
-        code: str,
         wbVehicleTipico: str,
         wbVehicleAtipico: str,
         wbPedestrianTipico: str,
@@ -91,7 +90,7 @@ def compute_webster(
         dfPhases: pd.DataFrame,
         interval: slice, #slice(28, 32)
         FACTOR: float,
-        ws, #sheet de workbook
+        wsWebster, #sheet de workbook
         scenario: int,
         logger: logging,
         ) -> None:
@@ -236,7 +235,7 @@ def compute_webster(
             if checkProtected:
                 Evi = 1.05
             else: #Usa dfLanes
-                num_opp_lines = dfLanes.at[dfTurns.at[access,"Destino.1"], "Carriles"]
+                num_opp_lines = dfLanes.at[dfTurns.at[access,"Destino.1"], "Carriles Destino"]
                 if num_opp_lines >= 3: num_opp_lines = 3
                 oppositeList = dfTurns[dfTurns["Origen"] == access]["Origen Opuesto"].tolist()
                 oppositeFlow = 0
@@ -337,9 +336,16 @@ def compute_webster(
         for _, row in df_flows_ade.iterrows():
             if row["Origen"] in originList:
                 numerator = row["Directo"] + row["Izquierda"] + row["Derecha"]
-                capacity = laneClassification[dfLanes[dfLanes["Origen.1"] == row['Origen']]["Clasificación"].unique().tolist()[0]] #NOTE: ¿Existe una forma más pythonic de hacerlo? Es un objeto tipo dataframe
-                denominator = dfLanes[dfLanes["Origen.1"] == row['Origen']]["Carriles"].unique().tolist()[0]*capacity #NOTE: ¿Existe una forma más pythonic de hacerlo? Es un objeto tipo dataframe
-                sum_flows = numerator / denominator
+                for indexLane, rowLane in dfLanes.iterrows():
+                    if rowLane["Origen.1"] == row["Origen"]:
+                        capacity = laneClassification[dfLanes.loc[indexLane, "Clasificación"]] #loc esta mal
+                        denominator = dfLanes.loc[indexLane,"Carriles Origen"]*capacity
+                        break
+                try:
+                    sum_flows = numerator / denominator
+                except Exception as inst:
+                    print("Mensaje para el más guapo: Esta calculando los máximos y nunca hace un match entre origen de df_flows_ade y phasesDict.")
+                    raise inst
                 if sum_flows > maximum_flows_ade:
                     maximum_flows_ade = sum_flows
         maxRelations_by_phase[phase] = round(maximum_flows_ade, 3)
@@ -358,16 +364,18 @@ def compute_webster(
     dfCritic = df_flows_ade.copy()
     dfCritic["Suma"] = dfCritic["Directo"] + dfCritic["Izquierda"] + dfCritic["Derecha"]
     dfCritic["Capacidad"] = np.nan
+    dfCritic["Carriles"] = np.nan
 
     for indexCritic, rowCritic in dfCritic.iterrows():
         for _, rowLanes in dfLanes.iterrows():
             if rowCritic["Origen"] == rowLanes["Origen.1"]:
                 dfCritic.loc[indexCritic, "Capacidad"] = rowLanes["Capacidad"]
+                dfCritic.loc[indexCritic, "Carriles"] = rowLanes["Carriles Origen"]
 
     dfCritic["Y"] = np.nan
     for indexCritic, rowCritic in dfCritic.iterrows():
         try:
-            dfCritic.loc[indexCritic, "Y"] = rowCritic["Suma"] / rowCritic["Capacidad"]
+            dfCritic.loc[indexCritic, "Y"] = rowCritic["Suma"] / rowCritic["Capacidad"] / rowCritic["Carriles"]
         except:
             continue
 
@@ -404,8 +412,8 @@ def compute_webster(
     # IMPRESION DE DATAFRAMES #
     ###########################
 
-    # print("df_flows_ade: \n", df_flows_ade)
-    # print("dfCritic: \n",dfCritic)
+    #print("df_flows_ade: \n", df_flows_ade)
+    #print("dfCritic: \n",dfCritic)
     #print(maxRelations_by_phase)
 
     ###########################
@@ -421,7 +429,7 @@ def compute_webster(
         Cp = L/(1-1.1*sum(maxRelations_by_phase.values()))
         Ccruce = MAX_GREEN + L
         Cmax = 150 + MAX_GREEN
-        ws.cell(17,2).value = "Los flujos no superan la capacidad, seleccionar el tiempo de ciclo de las opciones propuestas."
+        wsWebster.cell(17,2).value = "Los flujos no superan la capacidad, seleccionar el tiempo de ciclo de las opciones propuestas."
         logger.info("Los flujos no superan la capacidad")
     else:
         Cw = 0
@@ -433,35 +441,35 @@ def compute_webster(
         logger.info("Los flujos superan la capacidad de 0.80")
 
     #Tiempo de Ciclo
-    ws.cell(scenario+2,3).value = Cmax
-    ws.cell(scenario+2,4).value = Cw
-    ws.cell(scenario+2,5).value = Cmin
-    ws.cell(scenario+2,6).value = Cp
-    ws.cell(scenario+2,7).value = Ccruce
+    wsWebster.cell(scenario+2,3).value = Cmax
+    wsWebster.cell(scenario+2,4).value = Cw
+    wsWebster.cell(scenario+2,5).value = Cmin
+    wsWebster.cell(scenario+2,6).value = Cp
+    wsWebster.cell(scenario+2,7).value = Ccruce
 
     #Ingresar A y RR:
     for rowIndex, rowPhase in dfPhases.iterrows():
-        ws.cell(scenario+2, 23+rowIndex*3).value = rowPhase["Ambar"]
-        ws.cell(scenario+2, 24+rowIndex*3).value = rowPhase["Todo Rojo"]
+        wsWebster.cell(scenario+2, 23+rowIndex*3).value = rowPhase["Ambar"]
+        wsWebster.cell(scenario+2, 24+rowIndex*3).value = rowPhase["Todo Rojo"]
 
     #Ingreso de Ys:
     for phaseNo, relation in maxRelations_by_phase.items():
-        ws.cell(scenario+2, 10+phaseNo).value = relation #TODO: EDITAR NUEVAMENTE SI HAY.
+        wsWebster.cell(scenario+2, 10+phaseNo).value = relation #TODO: EDITAR NUEVAMENTE SI HAY.
 
     #Verdes peatonales:
     pedestrianGreenAccumulative = 0
     for rowIndex, rowPhase in dfPhases.iterrows():
         if rowPhase["Tipo"] == "P":
             pedestrianGreen = min_green[rowPhase["Caso"]][1]
-            ws.cell(scenario+2, 22+rowIndex*3).value = pedestrianGreen 
+            wsWebster.cell(scenario+2, 22+rowIndex*3).value = pedestrianGreen 
             pedestrianGreenAccumulative += pedestrianGreen
 
     #Pérdidas por verdes peatonales:
-    ws.cell(scenario+2, 9).value = pedestrianGreenAccumulative
+    wsWebster.cell(scenario+2, 9).value = pedestrianGreenAccumulative
 
     #Tiempos mínimos de verde usados:
     for rowIndex, rowPhase in dfPhases.iterrows():
         minGreenGeneral = min_green[rowPhase["Caso"]][1]
-        ws.cell(scenario+2, 37+rowIndex).value = minGreenGeneral
+        wsWebster.cell(scenario+2, 37+rowIndex).value = minGreenGeneral
 
     return None
