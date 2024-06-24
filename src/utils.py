@@ -307,6 +307,7 @@ def data2excel(subareaFolder: str, destiny_route: str) -> None:
     fieldPath = projectPath / "7. Informacion de Campo" / subareaName / "Vehicular"
     typicalPath = fieldPath / "Tipico"
     excelVehicles = os.listdir(typicalPath)
+    excelVehicles = [file for file in excelVehicles if file.endswith(".xlsm")]
     pattern = r"([A-Z]+-[0-9]+)"
 
     @dataclass
@@ -316,7 +317,6 @@ def data2excel(subareaFolder: str, destiny_route: str) -> None:
         names: list
 
     dictInfo = {}
-
     for excel in excelVehicles:
         excelPath = typicalPath / excel
         code = re.search(pattern, excel).group(1)

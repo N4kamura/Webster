@@ -122,21 +122,28 @@ class WebsterWindow(QMainWindow):
                 raise inst
             
             try:
+                dfPhases = pd.read_excel(path_datos, sheet_name=code, header=0, usecols="A:E", nrows=11).dropna()
+                if dfPhases.empty:
+                    print("Considerado no semaforizado: ", code)
+                    continue
+
                 dfTurns = pd.read_excel(path_datos, sheet_name=code, header=0, usecols="A:H", nrows=51, skiprows=27).dropna()
                 dfTurns['Fase'] = dfTurns['Fase'].apply(process_elem)
                 dfTurns = dfTurns[dfTurns['Considerar'] != 'NO']
-
-                print(dfTurns)
 
                 dfLanes = pd.read_excel(path_datos, sheet_name=code, header=0, usecols="J:N", nrows=51, skiprows=27).dropna()
                 dfLanes["Destino.1"] = pd.to_numeric(dfLanes["Destino.1"], errors="coerce")
                 dfLanes["Destino.1"] = dfLanes["Destino.1"].astype("Int64")
                 dfLanes["Origen.1"] = dfLanes["Origen.1"].astype("Int64")
-
-                dfPhases = pd.read_excel(path_datos, sheet_name=code, header=0, usecols="A:E", nrows=11).dropna()
+            except KeyError as inst:
+                error_message = QErrorMessage(self)
+                return error_message.showMessage("Posiblemente estes usando un template antiguo de 'Program_Configuration' revisar si tiene la columna CONSIDERAR.")
+            except FileNotFoundError as inst:
+                error_message = QErrorMessage(self)
+                return error_message.showMessage("No se encontro el archivo 'Program_Configuration.xlsx'")
             except Exception as inst:
                 error_message = QErrorMessage(self)
-                return error_message.showMessage("No se encontro el archivo Program_Configuration.xlsx")
+                return error_message.showMessage(str(inst))
             
             wbVehicleTipico = load_workbook(
                 excel_by_agent["Vehicular"]["Tipico"],
