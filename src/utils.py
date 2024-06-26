@@ -4,9 +4,28 @@ from openpyxl import load_workbook
 import re
 import numpy as np
 import pandas as pd
-import win32com.client as win32
+import win32com.client as com
 from dataclasses import dataclass
 from pathlib import Path
+import xlsxwriter
+import xlsxwriter.format
+import xlsxwriter.worksheet
+
+HEADERS = [
+                "Escenario", "Cf", "Cmax", "Cw", "Cmin", "Cp", "Ccruce", "L", "Lpeat", "gT",
+                "Y1", "Y2", "Y3", "Y4", "Y5", "g1", "g2", "g3", "g4", "g5", "CHECK",
+                "V1", "A1", "RR1",
+                "V2", "A2", "RR2",
+                "V3", "A3", "RR3",
+                "V4", "A4", "RR4",
+                "V5", "A5", "RR5",
+                "Vmin1", "Vmin2", "Vmin3", "Vmin4", "Vmin5",
+            ]
+
+SCENARIO_NAMES = [
+    "1: HPMAD", "2: HVMAD", "3:HPM", "4: HVM", "5: HPT", "6: HVT", "7: HPN", "8: HVN",
+    "9: HVMAD", "10: HPM", "11:HPT", "12: HPN", "13: HVN",
+]
 
 def process_elem(item: str | int) -> list:
     if isinstance(item, str):
@@ -261,43 +280,6 @@ def compute_flows(origin: int, dfTurns: pd.DataFrame, direction: int, dfFlows: p
     else:
         dfFlows.at[origin, direction] = flow
 
-def duplicate_name_sheets(excelPath: str, listCodes: list, finalPath: str) -> None:
-    try:
-        excel = win32.gencache.EnsureDispatch('Excel.Application')
-        excel.Visible = False
-        excel.DisplayAlerts = False
-    except Exception as inst:
-        excel.Application.Quit()
-        raise inst
-
-    try:
-        #Starting the excel
-        workBook = excel.Workbooks.Open(excelPath)
-        mainSheet = workBook.Sheets('DATA') #I uniformized everything with this name
-
-        #Create new sheets
-        for code in listCodes:
-            mainSheet.Copy(After=mainSheet)
-            newSheet = workBook.Sheets[mainSheet.Index + 1]
-            newSheet.Name = code
-
-        #Delete sheets
-        mainSheet.Delete()
-        #workBook.Worksheets(2).Delete()
-    except Exception as inst:
-        excel.Application.Quit()
-        raise inst
-
-    #End with the excel
-    finalPath = os.path.normpath(finalPath)
-
-    try:
-        workBook.SaveAs(finalPath)
-        workBook.Close(SaveChanges = True)
-    except Exception as inst:
-        excel.Application.Quit()
-        raise inst
-
 def data2excel(subareaFolder: str, destiny_route: str) -> None:
     """ Create an excel with data from counting files. """
     #Find field files:
@@ -367,7 +349,7 @@ def data2excel(subareaFolder: str, destiny_route: str) -> None:
 
     #Writing data in excel
 
-    excel = win32.Dispatch('Excel.Application')
+    excel = com.Dispatch('Excel.Application')
     excel.Visible = False
     excel.DisplayAlerts = False
 
@@ -387,3 +369,61 @@ def data2excel(subareaFolder: str, destiny_route: str) -> None:
 
     wb.Save()
     wb.Close()
+
+def _config_excel(worksheet: xlsxwriter.worksheet, cell_format: xlsxwriter.format, cell_format2: xlsxwriter.format, cell_format3: xlsxwriter.format) -> None:
+    for row in range(14):
+        for col in range(41):
+            worksheet.write(row, col, '', cell_format)
+    
+    for i, header in enumerate(HEADERS):
+        worksheet.write(0, i, header, cell_format3)
+
+    for i, scenarioName in enumerate(SCENARIO_NAMES):
+        "A1:AO14"
+        worksheet.write(1+i, 0, scenarioName, cell_format2)
+
+    for i in range(2,15):
+        worksheet.write_formula(i-1, 7, f"=SUM(W{i}:X{i})+SUM(Z{i}:AA{i})+SUM(AC{i}:AD{i})+SUM(AF{i}:AG{i})+SUM(AI{i}:AJ{i})+I{i}", cell_format)
+        worksheet.write_formula(i-1, 9, f"=B{i}-H{i}", cell_format)
+        worksheet.write_formula(i-1, 15, f"=IFERROR(K{i}/SUM($K{i}:$O{i})*$J{i},0)", cell_format)
+        worksheet.write_formula(i-1, 16, f"=IFERROR(L{i}/SUM($K{i}:$O{i})*$J{i},0)", cell_format)
+        worksheet.write_formula(i-1, 17, f"=IFERROR(M{i}/SUM($K{i}:$O{i})*$J{i},0)",cell_format)
+        worksheet.write_formula(i-1, 18, f"=IFERROR(N{i}/SUM($K{i}:$O{i})*$J{i},0)", cell_format)
+        worksheet.write_formula(i-1, 19, f"=IFERROR(O{i}/SUM($K{i}:$O{i})*$J{i},0)", cell_format)
+
+        worksheet.write_formula(i-1, 20, f'=IF(SUM(P{i}:T{i})=J{i},"OK","DESBALANCE")', cell_format)
+
+        worksheet.write_formula(i-1, 21, f"=IF(P{i}<AK{i}, AK{i}, P{i})", cell_format)
+        worksheet.write_formula(i-1, 24, f"=IF(Q{i}<AL{i}, AL{i}, Q{i})", cell_format)
+        worksheet.write_formula(i-1, 27, f"=IF(R{i}<AM{i}, AM{i}, R{i})", cell_format)
+        worksheet.write_formula(i-1, 30, f"=IF(S{i}<AN{i}, AN{i}, S{i})", cell_format)
+        worksheet.write_formula(i-1, 33, f"=IF(T{i}<AO{i}, AO{i}, T{i})", cell_format)
+
+    worksheet.set_column('I:T', None, None, {'hidden': True})
+
+def duplicate_name_sheets(listCodes: list, finalPath: str) -> None:
+    workbook = xlsxwriter.Workbook(finalPath)
+    cell_format = workbook.add_format({
+        'border': 1,
+        'align': 'center',
+        'valign': 'vcenter',
+    })
+    
+    cell_format2 = workbook.add_format({
+        'border': 1,
+        'align': 'left',
+        'valign': 'vcenter',
+    })
+
+    cell_format3 = workbook.add_format({
+        'border': 1,
+        'align': 'center',
+        'valign': 'vcenter',
+        'bold': True
+    })
+
+    for code in listCodes:
+        worksheet = workbook.add_worksheet(code)
+        _config_excel(worksheet, cell_format, cell_format2, cell_format3)
+
+    workbook.close()

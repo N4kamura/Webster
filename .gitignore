@@ -9,3 +9,4 @@ interfaces/
 main.spec
 unit_tests.py
 *.pdf
+.venv/

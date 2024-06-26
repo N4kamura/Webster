@@ -131,7 +131,9 @@ def compute_webster(
             interval,
         )
     except Exception as e:
-        raise e
+        print("No se pudo conseguir la data de flujos")
+        print("Internal Error:", e)
+        return None
     
     logger.debug("Flujos:\t\tPassed")
 
@@ -147,15 +149,15 @@ def compute_webster(
     listTurns = list(set(listTurns))
 
     if origin_matrix != listTurns:
-        print("Los accesos no coinciden entre los conteos y los datos de Webster")
+        print("\nLos accesos no coinciden entre los conteos y los datos de Webster")
         logger.error("Los accesos no coinciden entre los conteos y los datos de Webster")
-        print(origin_matrix, dfTurns["Origen"].unique().tolist())
+        print(list(origin_matrix), dfTurns["Origen"].unique().tolist())
         logger.error(origin_matrix)
         logger.error(dfTurns["Origen"].unique().tolist())
         if scenario <= 7:
-            print("FILE: ", wbVehicleTipico) #HACK: Solo por ahora
+            print("Revisar en 'Típico'")
         else:
-            print("FILE: ", wbVehicleAtipico) #HACK: Solo por ahora
+            print("Revisar en 'Atípico")
 
     #################################################################
     # Reading pedestrian data and obtaining maximum pedestrian flow # 

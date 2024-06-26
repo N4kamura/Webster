@@ -84,11 +84,6 @@ class WebsterWindow(QMainWindow):
             "Program_Configuration.xlsx",
         )
 
-        #Abriendo template de webster
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        path_template = os.path.join(script_dir, 'tools', 'WEBSTER.xlsx')
-        #path_template = r".\tools\WEBSTER.xlsx"
-
         finalPath = os.path.join(
                 self.subarea_directory,
                 "Program_Results.xlsx",
@@ -96,7 +91,6 @@ class WebsterWindow(QMainWindow):
 
         try:
             duplicate_name_sheets(
-                excelPath=path_template,
                 listCodes=self.listCodes,
                 finalPath=finalPath,
             )
@@ -115,7 +109,7 @@ class WebsterWindow(QMainWindow):
         self.ui.progressBar.setMaximum(len(self.listCodes))
 
         for iteration, code in enumerate(self.listCodes):
-            print(f"{f' Calculando intersección {code} ':#^{50}}")
+            print(f"\n{f' Calculando intersección {code} ':#^{50}}")
             try:
                 excel_by_agent, intervals = get_dict_by_agent(subareaFolder, excel_by_agent, code)
             except Exception as inst:
@@ -202,7 +196,9 @@ class WebsterWindow(QMainWindow):
                         )
                 except Exception as inst:
                     error_message = QErrorMessage(self)
-                    return error_message.showMessage("Error en calcular Webster")
+                    print("Error: ", code)
+                    LOGGER.error(str(inst))
+                    continue
 
             self.ui.progressBar.setValue(iteration+1)
 
