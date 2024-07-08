@@ -10,6 +10,9 @@ from pathlib import Path
 import xlsxwriter
 import xlsxwriter.format
 import xlsxwriter.worksheet
+import xlwings as xw
+from tqdm import tqdm
+import pywintypes
 
 HEADERS = [
                 "Escenario", "Cf", "Cmax", "Cw", "Cmin", "Cp", "Ccruce", "L", "Lpeat", "gT",
@@ -60,7 +63,11 @@ def get_codes(subareaPath, error_message):
     return listCodes
 
 def _get_interval_from_excel(excelPath) -> slice:
-    wb = load_workbook(excelPath, read_only=True, data_only=True)
+    try:
+        wb = load_workbook(excelPath, read_only=True, data_only=True)
+    except Exception as e:
+        print("Error en:\n", excelPath)
+        return None
     ws = wb['Histograma']
     intervals = []
     for j in range(3):
@@ -274,7 +281,10 @@ def compute_flows(origin: int, dfTurns: pd.DataFrame, direction: int, dfFlows: p
     listTurn = dfTurns[(dfTurns["Origen"] == origin) & (dfTurns["Giro"] == direction)].index.tolist()
     for leftTurnIndex in listTurn:
         for veh_type in range(len(array_flow)):
-            flow += sum(array_flow[veh_type][:,leftTurnIndex])
+            try:
+                flow += sum(array_flow[veh_type][:,leftTurnIndex])
+            except IndexError as e:
+                print("Posiblemente no existe un giro en el típico o el atípico.")
     if flow == None:
         dfFlows.at[origin, direction] = 0
     else:
@@ -289,7 +299,7 @@ def data2excel(subareaFolder: str, destiny_route: str) -> None:
     fieldPath = projectPath / "7. Informacion de Campo" / subareaName / "Vehicular"
     typicalPath = fieldPath / "Tipico"
     excelVehicles = os.listdir(typicalPath)
-    excelVehicles = [file for file in excelVehicles if file.endswith(".xlsm")]
+    excelVehicles = [file for file in excelVehicles if file.endswith(".xlsm") and not file.startswith("~$")]
     pattern = r"([A-Z]+-[0-9]+)"
 
     @dataclass
@@ -299,7 +309,7 @@ def data2excel(subareaFolder: str, destiny_route: str) -> None:
         names: list
 
     dictInfo = {}
-    for excel in excelVehicles:
+    for excel in tqdm(excelVehicles, desc="Procesando excels"):
         excelPath = typicalPath / excel
         code = re.search(pattern, excel).group(1)
         wb = load_workbook(excelPath, read_only=True, data_only=True)
@@ -349,23 +359,44 @@ def data2excel(subareaFolder: str, destiny_route: str) -> None:
 
     #Writing data in excel
 
-    excel = com.Dispatch('Excel.Application')
-    excel.Visible = False
-    excel.DisplayAlerts = False
+    try:
+        excel = com.Dispatch('Excel.Application')
+        excel.Visible = False
+        excel.DisplayAlerts = False
+    except Exception as inst:
+        print(str(inst))
 
-    wb = excel.Workbooks.Open(destiny_route)
+    try:
+        wb = excel.Workbooks.Open(destiny_route)
+    except pywintypes.com_error as inst:
+        raise inst
 
-    for nameSheet, dataList in dictInfo.items():
-        ws = wb.Sheets[nameSheet]
-        for i in range(len(dataList.origins)):
-            ws.Cells(29+i, 1).Value = dataList.origins[i]
-            ws.Cells(29+i, 2).Value = dataList.destinations[i]
-            ws.Cells(29+i, 4).Value = dataList.names[i]
 
-        originList = list(set(dataList.origins))
-        
-        for j, origin in enumerate(originList):
-            ws.Cells(29+j, 10).Value = origin
+    for nameSheet, dataList in tqdm(dictInfo.items(), desc="Escribiendo hojas"):
+        try:
+            ws = wb.Sheets[nameSheet]
+        except pywintypes.com_error as inst:
+            print("\nNo existe el sheet: ", nameSheet)
+            print(str(inst))
+            continue
+        except Exception as inst:
+            print("\nError: ", nameSheet)
+            print(str(inst))
+            
+        try:
+            for i in range(len(dataList.origins)):
+                ws.Cells(29+i, 1).Value = dataList.origins[i]
+                ws.Cells(29+i, 2).Value = dataList.destinations[i]
+                ws.Cells(29+i, 4).Value = dataList.names[i]
+
+            originList = list(set(dataList.origins))
+            
+            for j, origin in enumerate(originList):
+                ws.Cells(29+j, 10).Value = origin
+        except Exception as inst:
+            print("\nError: ", nameSheet)
+            print(str(inst))
+            continue
 
     wb.Save()
     wb.Close()
@@ -427,3 +458,20 @@ def duplicate_name_sheets(listCodes: list, finalPath: str) -> None:
         _config_excel(worksheet, cell_format, cell_format2, cell_format3)
 
     workbook.close()
+
+def duplicate2(listCodes: list, finalPath: str) -> None:
+    app = xw.App(visible=False)
+    wb = app.books.open(finalPath)
+
+    source_sheet = wb.sheets["DATA"]
+    for i, code in enumerate(tqdm(listCodes, desc="Copiando hojas")):
+        source_sheet.api.Copy(After = source_sheet.api)
+
+        new_sheet = wb.sheets[-1-i]
+        new_sheet.name = code
+
+    wb.sheets["DATA"].delete()
+
+    wb.save()
+    wb.close()
+    app.quit()

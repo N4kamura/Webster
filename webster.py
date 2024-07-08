@@ -1,10 +1,8 @@
-from openpyxl import load_workbook
 from unidecode import unidecode
 import numpy as np
 import pandas as pd
 import math
 import bisect
-from pathlib import Path
 import warnings
 from unidecode import unidecode
 from src.utils import *
@@ -25,6 +23,7 @@ laneClassification = { #NOTE: Pueden afectar los cálculos, pero son conservador
 }
 
 min_green = {
+    0: [0,0],
     1: [6,11], #Nro. case: [min green, green used]
     2: [9,14],
     3: [14,15],
@@ -93,6 +92,7 @@ def compute_webster(
         wsWebster, #sheet de workbook
         scenario: int,
         logger: logging,
+        maxValueRelations: float,   
         ) -> None:
 
     if scenario <= 7:
@@ -149,15 +149,17 @@ def compute_webster(
     listTurns = list(set(listTurns))
 
     if origin_matrix != listTurns:
-        print("\nLos accesos no coinciden entre los conteos y los datos de Webster")
+        #print("\nLos accesos no coinciden entre los conteos y los datos de Webster")
         logger.error("Los accesos no coinciden entre los conteos y los datos de Webster")
-        print(list(origin_matrix), dfTurns["Origen"].unique().tolist())
+        #print(list(origin_matrix), dfTurns["Origen"].unique().tolist())
         logger.error(origin_matrix)
         logger.error(dfTurns["Origen"].unique().tolist())
         if scenario <= 7:
-            print("Revisar en 'Típico'")
+            #print("Revisar en 'Típico'")
+            pass
         else:
-            print("Revisar en 'Atípico")
+            #print("Revisar en 'Atípico")
+            pass
 
     #################################################################
     # Reading pedestrian data and obtaining maximum pedestrian flow # 
@@ -424,7 +426,7 @@ def compute_webster(
 
     MAX_GREEN = dfPhases["green"].max()
 
-    if sum(maxRelations_by_phase.values()) <= 0.80: 
+    if sum(maxRelations_by_phase.values()) <= maxValueRelations: 
         Cw = (1.5*L + 5) // (1 - sum(maxRelations_by_phase.values()))
         #Cmin = L/(1-sum(maxRelations_by_phase.values())) #NOTE: Ha sido cambiado por el método de la ruta crítica
         Cmin = 15/(1-Y)

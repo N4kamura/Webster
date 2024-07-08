@@ -1,20 +1,16 @@
-from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog, QErrorMessage, QMessageBox
 from interface import Ui_MainWindow
-from pathlib import Path
 import sys
 import pandas as pd
 from openpyxl import load_workbook
 from webster import compute_webster
 import os
-import shutil
-from create_sigs import start_creating_sigs
+from create_sigs import replicate_sigs
 from src.utils import *
 import warnings
 import logging
 from tqdm import tqdm
-import re
-from dataclasses import dataclass
+import shutil
 
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
@@ -54,6 +50,12 @@ class WebsterWindow(QMainWindow):
         except Exception as e:
             error_message = QErrorMessage(self)
             return error_message.showMessage(str(e))
+
+        try:
+            maxValueRelations = float(self.ui.lineEdit.text())
+        except Exception as e:
+            print("Error: el valor máximo de la suma de relaciones de saturación no es un número decimal.")
+            raise e
 
         #Get vehicle path:
         pathParts = self.subarea_directory.split("/")
@@ -193,10 +195,10 @@ class WebsterWindow(QMainWindow):
                         dfTurns, dfLanes, dfPhases, #Dataframes enviados
                         interval, factor, wb_WEBSTER[code], i, #<------ Aquí se le enviaría el sheet que le corresponde
                         LOGGER,
+                        maxValueRelations,
                         )
                 except Exception as inst:
-                    error_message = QErrorMessage(self)
-                    print("Error: ", code)
+                    print("Error: ", str(inst))
                     LOGGER.error(str(inst))
                     continue
 
@@ -237,9 +239,10 @@ class WebsterWindow(QMainWindow):
             "Program_Configuration.xlsx",
         )
 
+        shutil.copy2(origin_route, destiny_route)
+
         try:
-            duplicate_name_sheets(
-                excelPath=origin_route,
+            duplicate2(
                 listCodes=self.listCodes,
                 finalPath=destiny_route,
             )
@@ -269,45 +272,13 @@ class WebsterWindow(QMainWindow):
 
     def multiply_sigs(self) -> None:
         """ Create SIG from a unique sig file in ./Tipico/HPM folder. """
-        code = os.path.split(self.vehicle_path)[1]
-        code = code[:5]
-        hpm_excel_path = Path(self.subarea_directory) / "Propuesto" / "Tipico" / "HPM" / f"{code}.sig"
-        
-        for scenario in ["HPMAD","HPN","HPT","HVM","HVMAD","HVN","HVT"]:
-            destiny_route = Path(self.subarea_directory) / "Propuesto" / "Tipico" / scenario / f"{code}.sig"
-            try:
-                shutil.copy2(hpm_excel_path, destiny_route)
-            except Exception as inst:
-                error_message = QErrorMessage(self)
-                error_message.showMessage("No se encontro el archivo HPM.sig")
+        try:
+            replicate_sigs(self.subarea_directory) #NOTE: Designed to vissim version 24
+        except Exception as inst:
+            error_message = QErrorMessage(self)
+            error_message.showMessage(str(inst))
 
-        for scenario in ["HPM","HPN","HPT","HVMAD","HVN"]:
-            destiny_route = Path(self.subarea_directory) / "Propuesto" / "Atipico" / scenario / f"{code}.sig"
-            try:
-                shutil.copy2(hpm_excel_path, destiny_route)
-            except Exception as inst:
-                error_message = QErrorMessage(self)
-                error_message.showMessage("No se encontro el archivo HPM.sig")
-
-        self.ui.label.setText("Copied!")
-
-    def create_sig_webster(self) -> None: #NOTE: OUTDATED!
-        """ Modify all sigs according to Webster times. """
-        code = os.path.split(self.vehicle_path)[1][:5]
-        subarea_folder = Path(self.subarea_directory)
-
-        subarea_content = os.listdir(subarea_folder)
-        for file in subarea_content:
-            if f"WEBSTER_{code}.xlsx" == file:
-                try:
-                    start_creating_sigs(
-                        webs_xlsx = subarea_folder / file,
-                        code_int = code,
-                    )
-                except Exception as inst:
-                    error_message = QErrorMessage(self)
-                    return error_message.showMessage(inst)
-                break
+        self.ui.label.setText("Copied and modified!")
 
 def main():
     warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file './interfaces/main.ui'
+# Form implementation generated from reading ui file '.\interfaces\main.ui'
 #
 # Created by: PyQt5 UI code generator 5.15.10
 #
@@ -31,10 +31,10 @@ class Ui_MainWindow(object):
         self.start_pushButton.setFont(font)
         self.start_pushButton.setObjectName("start_pushButton")
         self.datos_pushButton = QtWidgets.QPushButton(self.centralwidget)
-        self.datos_pushButton.setGeometry(QtCore.QRect(240, 40, 81, 41))
+        self.datos_pushButton.setGeometry(QtCore.QRect(100, 40, 81, 41))
         self.datos_pushButton.setObjectName("datos_pushButton")
         self.sigs_pushButton = QtWidgets.QPushButton(self.centralwidget)
-        self.sigs_pushButton.setGeometry(QtCore.QRect(60, 40, 81, 41))
+        self.sigs_pushButton.setGeometry(QtCore.QRect(10, 40, 81, 41))
         self.sigs_pushButton.setObjectName("sigs_pushButton")
         self.label = QtWidgets.QLabel(self.centralwidget)
         self.label.setGeometry(QtCore.QRect(20, 90, 201, 16))
@@ -47,6 +47,13 @@ class Ui_MainWindow(object):
         self.progressBar.setGeometry(QtCore.QRect(247, 90, 241, 23))
         self.progressBar.setProperty("value", 0)
         self.progressBar.setObjectName("progressBar")
+        self.lineEdit = QtWidgets.QLineEdit(self.centralwidget)
+        self.lineEdit.setGeometry(QtCore.QRect(310, 50, 51, 21))
+        self.lineEdit.setObjectName("lineEdit")
+        self.label_2 = QtWidgets.QLabel(self.centralwidget)
+        self.label_2.setGeometry(QtCore.QRect(210, 50, 91, 20))
+        self.label_2.setAlignment(QtCore.Qt.AlignRight|QtCore.Qt.AlignTrailing|QtCore.Qt.AlignVCenter)
+        self.label_2.setObjectName("label_2")
         MainWindow.setCentralWidget(self.centralwidget)
 
         self.retranslateUi(MainWindow)
@@ -60,3 +67,5 @@ class Ui_MainWindow(object):
         self.datos_pushButton.setText(_translate("MainWindow", "Create Datos"))
         self.sigs_pushButton.setText(_translate("MainWindow", "Create Sigs"))
         self.label.setText(_translate("MainWindow", "Credits: Nakamura"))
+        self.lineEdit.setText(_translate("MainWindow", "0.80"))
+        self.label_2.setText(_translate("MainWindow", "Máx. Relation:"))
