@@ -200,7 +200,8 @@ class WebsterWindow(QMainWindow):
                 except Exception as inst:
                     print("Error: ", str(inst))
                     LOGGER.error(str(inst))
-                    continue
+                    raise inst
+                    #continue
 
             self.ui.progressBar.setValue(iteration+1)
 

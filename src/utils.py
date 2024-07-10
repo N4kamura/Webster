@@ -422,7 +422,7 @@ def _config_excel(worksheet: xlsxwriter.worksheet, cell_format: xlsxwriter.forma
         worksheet.write_formula(i-1, 18, f"=IFERROR(N{i}/SUM($K{i}:$O{i})*$J{i},0)", cell_format)
         worksheet.write_formula(i-1, 19, f"=IFERROR(O{i}/SUM($K{i}:$O{i})*$J{i},0)", cell_format)
 
-        worksheet.write_formula(i-1, 20, f'=IF(SUM(P{i}:T{i})=J{i},"OK","DESBALANCE")', cell_format)
+        worksheet.write_formula(i-1, 20, f'=IF(SUM(V{i}:AJ{i})=B{i}, IF(SUM(P{i}:T{i})=J{i}, "OK", "IMBALANCE"), IF(SUM(V{i}:AJ{i})>B{i}, CONCAT(" - ", ROUND(SUM(V{i}:AJ{i})-B{i}, 0)), CONCAT(" + ", ROUND(B{i}-SUM(V{i}:AJ{i}), 0))))', cell_format)
 
         worksheet.write_formula(i-1, 21, f"=IF(P{i}<AK{i}, AK{i}, P{i})", cell_format)
         worksheet.write_formula(i-1, 24, f"=IF(Q{i}<AL{i}, AL{i}, Q{i})", cell_format)

@@ -433,7 +433,6 @@ def compute_webster(
         Cp = L/(1-1.1*sum(maxRelations_by_phase.values()))
         Ccruce = MAX_GREEN + L
         Cmax = 150 + MAX_GREEN
-        wsWebster.cell(17,2).value = "Los flujos no superan la capacidad, seleccionar el tiempo de ciclo de las opciones propuestas."
         logger.info("Los flujos no superan la capacidad")
     else:
         Cw = 0
@@ -441,7 +440,6 @@ def compute_webster(
         Cp = 0
         Ccruce = MAX_GREEN + L
         Cmax = 150+MAX_GREEN
-        ws.cell(17,2).value = "Los flujos superan la capacidad, se recomienda al simulador establecer el Tiempo de Ciclo."
         logger.info("Los flujos superan la capacidad de 0.80")
 
     #Tiempo de Ciclo
@@ -452,9 +450,15 @@ def compute_webster(
     wsWebster.cell(scenario+2,7).value = Ccruce
 
     #Ingresar A y RR:
+    phaseWritten = 0
     for rowIndex, rowPhase in dfPhases.iterrows():
         wsWebster.cell(scenario+2, 23+rowIndex*3).value = rowPhase["Ambar"]
         wsWebster.cell(scenario+2, 24+rowIndex*3).value = rowPhase["Todo Rojo"]
+        phaseWritten += 1
+
+    for k in range(phaseWritten, 5):
+        wsWebster.cell(scenario+2, 23+k*3).value = 0
+        wsWebster.cell(scenario+2, 24+k*3).value = 0
 
     #Ingreso de Ys:
     for phaseNo, relation in maxRelations_by_phase.items():

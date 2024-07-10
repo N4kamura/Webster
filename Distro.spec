@@ -21,7 +21,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='Distro v2.1.7',
+    name='Distro v2.1.10',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
